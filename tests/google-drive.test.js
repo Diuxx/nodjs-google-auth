@@ -68,3 +68,28 @@ test('Refuse un accès Drive tant que le compte n’est pas connecté', async ()
   const { drive } = setup();
   await assert.rejects(() => drive.read(11, 'todo'), { code: 'DRIVE_NOT_CONNECTED' });
 });
+
+test('Crée un vrai fichier TXT visible dans Mon Drive (et non dans appDataFolder)', async () => {
+  const cipher = createTokenCipher(Buffer.alloc(32, 3).toString('base64'));
+  let upload;
+  const drive = createGoogleDrive({
+    config: { cipher },
+    repo: { drive: { getEncryptedToken: () => cipher.encrypt('test-token') } },
+    google: { oauthClientForDrive: () => ({ getAccessToken: async () => ({ token: 'access-token' }) }) },
+    http: async (url, options) => {
+      upload = { url, ...options };
+      return new Response(JSON.stringify({ id: 'example-123', name: 'hello.txt' }), { status: 200 });
+    }
+  });
+
+  const result = await drive.createTextFile(10, 'hello.txt', 'Bonjour !\nÉcriture avec accents.');
+  assert.equal(result.name, 'hello.txt');
+  assert.equal(result.url, 'https://drive.google.com/file/d/example-123/view');
+  assert.match(upload.url, /uploadType=multipart/);
+  assert.equal(upload.method, 'POST');
+  assert.equal(upload.headers.Authorization, 'Bearer access-token');
+  assert.match(upload.body, /"name":"hello.txt","mimeType":"text\/plain"/);
+  assert.doesNotMatch(upload.body, /appDataFolder/);
+  assert.match(upload.body, /Content-Type: text\/plain; charset=UTF-8/);
+  assert.match(upload.body, /Bonjour !\nÉcriture avec accents\./);
+});

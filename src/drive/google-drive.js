@@ -48,6 +48,23 @@ export function createGoogleDrive({ config, repo, google, http = fetch }) {
     return response;
   }
 
+  async function createFile(userId, metadata, content, mediaType) {
+    const boundary = `nicolabz-${randomBytes(12).toString('hex')}`;
+    const multipart = [
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,
+      `--${boundary}\r\nContent-Type: ${mediaType}\r\n\r\n${content}\r\n`,
+      `--${boundary}--\r\n`
+    ].join('');
+    const response = await request(userId, 'POST',
+      `${UPLOAD_URL}?uploadType=multipart&fields=id,name,webViewLink`, {
+        body: multipart, contentType: `multipart/related; boundary=${boundary}`
+      });
+    const created = await response.json();
+    if (!created.id) throw new AppError(502, 'DRIVE_CREATE_FAILED',
+      'Google Drive n’a pas confirmé la création du fichier.');
+    return created;
+  }
+
   async function findFile(userId, appId) {
     const name = `nicolabz.${appId}.json`;
     const params = new URLSearchParams({
@@ -107,23 +124,23 @@ export function createGoogleDrive({ config, repo, google, http = fetch }) {
       return fileId;
     }
 
-    const boundary = `nicolabz-${randomBytes(12).toString('hex')}`;
-    const metadata = JSON.stringify({
-      name: `nicolabz.${appId}.json`, mimeType: 'application/json', parents: ['appDataFolder']
-    });
-    const multipart = [
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${metadata}\r\n`,
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${content}\r\n`,
-      `--${boundary}--\r\n`
-    ].join('');
-    const response = await request(userId, 'POST', `${UPLOAD_URL}?uploadType=multipart&fields=id`, {
-      body: multipart, contentType: `multipart/related; boundary=${boundary}`
-    });
-    const created = await response.json();
-    if (!created.id) throw new AppError(502, 'DRIVE_CREATE_FAILED', 'Google Drive n’a pas confirmé la création du fichier.');
+    const created = await createFile(userId,
+      { name: `nicolabz.${appId}.json`, mimeType: 'application/json', parents: ['appDataFolder'] },
+      content, 'application/json; charset=UTF-8');
     repo.sync.saveFileId(userId, appId, created.id);
     return created.id;
   }
 
-  return { read, write };
+  async function createTextFile(userId, name, content) {
+    // Sans parent appDataFolder, Drive crée le fichier à la racine de « Mon Drive ».
+    const created = await createFile(userId, { name, mimeType: 'text/plain' },
+      content, 'text/plain; charset=UTF-8');
+    return {
+      id: created.id,
+      name: created.name || name,
+      url: `https://drive.google.com/file/d/${encodeURIComponent(created.id)}/view`
+    };
+  }
+
+  return { read, write, createTextFile };
 }

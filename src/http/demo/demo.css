@@ -59,3 +59,20 @@ button:focus-visible, a:focus-visible { outline: 2px solid #a6d5aa; outline-offs
   .tag { font-size: 9px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; } }
+
+.drive-demo { border-top: 1px solid #3b483c; margin-top: 22px; padding-top: 22px; }
+.drive-demo-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.drive-demo-heading h3 { font-size: 16px; margin: 0; letter-spacing: -.025em; }
+.drive-status { border-radius: 99px; padding: 5px 9px; background: #384338; color: #b7cbb8; font-size: 10px; }
+.drive-demo > p { font-size: 12px; line-height: 1.65; color: #a6b8a8; margin: 11px 0 17px; }
+.drive-demo code { color: #dcebdc; }
+.text-file-form { margin-top: 20px; display: flex; flex-direction: column; gap: 9px; }
+.text-file-form label { font-size: 12px; font-weight: 650; color: #dce6da; }
+.text-file-form input, .text-file-form textarea { width: 100%; background: #161d17; border: 1px solid #576859; border-radius: 9px; color: #eaf0e9; font: inherit; font-size: 13px; padding: 12px; }
+.text-file-form textarea { resize: vertical; min-height: 110px; line-height: 1.5; }
+.text-file-form input:focus-visible, .text-file-form textarea:focus-visible { outline: 2px solid #a6d5aa; outline-offset: 2px; }
+.text-file-form small { font-size: 11px; color: #92a393; line-height: 1.5; }
+.text-file-form button { margin-top: 5px; }
+.message-success { border: 1px solid #4d7953; background: #1c3522; padding: 13px; margin-top: 16px; border-radius: 9px; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.message-success a { display: block; margin-top: 5px; color: #bfe8be; }
+.logout-button { margin-top: 21px; }

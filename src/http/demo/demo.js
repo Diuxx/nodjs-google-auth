@@ -7,7 +7,16 @@ const elements = {
   logout: document.querySelector('#logout'),
   name: document.querySelector('#user-name'),
   email: document.querySelector('#user-email'),
-  avatar: document.querySelector('#avatar')
+  avatar: document.querySelector('#avatar'),
+  driveStatus: document.querySelector('#drive-status'),
+  connectDrive: document.querySelector('#connect-drive'),
+  form: document.querySelector('#text-file-form'),
+  filename: document.querySelector('#filename'),
+  content: document.querySelector('#content'),
+  saveFile: document.querySelector('#save-file'),
+  fileResult: document.querySelector('#file-result'),
+  fileResultName: document.querySelector('#file-result-name'),
+  fileResultLink: document.querySelector('#file-result-link')
 };
 
 function showView(view) {
@@ -42,6 +51,11 @@ async function refreshSession() {
     elements.name.textContent = name;
     elements.email.textContent = session.user.email;
     elements.avatar.textContent = name.charAt(0).toLocaleUpperCase('fr');
+    elements.driveStatus.textContent = session.driveConnected ? 'Drive connecté' : 'Drive non connecté';
+    elements.connectDrive.textContent = session.driveConnected
+      ? 'Autoriser / renouveler les permissions Drive'
+      : 'Autoriser Google Drive';
+    elements.form.hidden = !session.driveConnected;
     showView('logged-in');
   } catch (error) {
     showView('logged-out');
@@ -50,10 +64,8 @@ async function refreshSession() {
 }
 
 function startGoogleLogin() {
-  const url = new URL('/auth/google/start', location.origin);
-  url.searchParams.set('app', 'demo');
-  url.searchParams.set('return_to', new URL('/demo', location.origin).href);
-  location.assign(url.href);
+  // Le serveur détermine l’URL publique autorisée : jamais location.origin.
+  location.assign('/demo/login');
 }
 
 async function logout() {
@@ -69,14 +81,43 @@ async function logout() {
   }
 }
 
+function authorizeDrive() {
+  // Comme pour la connexion, l’URL de retour est construite côté serveur.
+  location.assign('/demo/drive');
+}
+
+async function saveTextFile(event) {
+  event.preventDefault();
+  elements.saveFile.disabled = true;
+  elements.fileResult.hidden = true;
+  showError(null);
+  try {
+    const saved = await requestJson('/api/demo/text-file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ filename: elements.filename.value, content: elements.content.value })
+    });
+    elements.fileResultName.textContent = saved.name;
+    elements.fileResultLink.href = saved.url;
+    elements.fileResult.hidden = false;
+  } catch (error) {
+    showError(`Impossible de créer le fichier : ${error.message}`);
+  } finally {
+    elements.saveFile.disabled = false;
+  }
+}
+
 elements.login.addEventListener('click', startGoogleLogin);
 elements.logout.addEventListener('click', logout);
+elements.connectDrive.addEventListener('click', authorizeDrive);
+elements.form.addEventListener('submit', saveTextFile);
 
 // Le callback OAuth revient sur /demo?auth=connected. Le paramètre ne prouve
 // pas la connexion : seul /api/session fournit l'état de référence.
 const url = new URL(location.href);
-if (url.searchParams.has('auth')) {
+if (url.searchParams.has('auth') || url.searchParams.has('drive')) {
   url.searchParams.delete('auth');
+  url.searchParams.delete('drive');
   history.replaceState(null, '', url.pathname + url.search + url.hash);
 }
 refreshSession();

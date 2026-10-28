@@ -5,9 +5,10 @@ import helmet from '@fastify/helmet';
 import { AppError, requireCondition } from '../lib/errors.js';
 import { requireAppOrigin } from '../lib/client-apps.js';
 import { registerDemoRoutes } from './demo/routes.js';
+import { registerDemoTextRoutes } from './demo/text-routes.js';
 import { cookieSettings, setSessionCookie, clearSessionCookie, setFlowCookie, clearFlowCookie } from './cookies.js';
 
-export async function createApp({ config, repo, auth, google, sync, database }) {
+export async function createApp({ config, repo, auth, google, sync, drive, database }) {
   const app = Fastify({
     logger: { redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie'] },
     disableRequestLogging: true, // Évite de journaliser les codes OAuth dans les URLs de callback.
@@ -66,10 +67,6 @@ export async function createApp({ config, repo, auth, google, sync, database }) 
   }
 
   function beginFlow(type, request, reply) {
-    if (type === 'drive') {
-      requireCondition(request.query.app !== 'demo', 400, 'INVALID_FLOW',
-        'La démonstration ne demande pas d’accès à Google Drive.');
-    }
     const user = type === 'drive' ? requireUser(request) : null;
     const { browserToken, redirectUrl } = auth.start(type, request.query.app, request.query.return_to, user);
     setFlowCookie(reply, cookies, browserToken);
@@ -91,7 +88,8 @@ export async function createApp({ config, repo, auth, google, sync, database }) 
     return reply.redirect(result.returnUrl);
   }
 
-  registerDemoRoutes(app);
+  registerDemoRoutes(app, config.publicBaseUrl);
+  registerDemoTextRoutes(app, { config, drive, requireUser });
 
   app.get('/health', async () => {
     database.prepare('SELECT 1').get();

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
-  <meta name="description" content="Démo de connexion Google de Nicolabz Identity.">
+  <meta name="description" content="Démo de connexion Google et création de fichiers texte dans Drive.">
   <title>Connexion Google · Nicolabz Identity</title>
   <link rel="stylesheet" href="/demo/demo.css">
   <script src="/demo/demo.js" type="module"></script>
@@ -23,7 +23,7 @@
       <div class="card-head">
         <div class="eyebrow"><span class="live-dot" aria-hidden="true"></span>AUTHENTIFICATION CENTRALISÉE</div>
         <h1 id="demo-title">Une connexion.<br><span class="highlight">Toutes tes applications.</span></h1>
-        <p>Teste ton intégration Google OAuth directement sur ton serveur Node.js, sans client externe.</p>
+        <p>Teste la connexion Google et la création d’un fichier texte dans ton Drive, sans client externe.</p>
       </div>
 
       <div id="loading" class="panel" role="status">
@@ -52,7 +52,29 @@
           </div>
         </div>
         <p class="signed-in-note">Google a confirmé ton identité. Ta session est enregistrée côté serveur dans SQLite.</p>
-        <button id="logout" class="secondary-button" type="button">Se déconnecter</button>
+        <section class="drive-demo" aria-labelledby="drive-demo-title">
+          <div class="drive-demo-heading">
+            <h3 id="drive-demo-title">Tester Google Drive</h3>
+            <span id="drive-status" class="drive-status">Vérification…</span>
+          </div>
+          <p>Autorise la création de fichiers, puis enregistre un vrai <code>.txt</code> dans <strong>Mon Drive</strong>. Les fichiers JSON de synchronisation restent dans l’espace privé de l’application.</p>
+          <button id="connect-drive" class="secondary-button" type="button">Autoriser Google Drive</button>
+
+          <form id="text-file-form" class="text-file-form" hidden>
+            <label for="filename">Nom du fichier</label>
+            <input id="filename" name="filename" type="text" value="nicolabz-demo.txt" maxlength="100" required autocomplete="off">
+            <label for="content">Contenu du fichier</label>
+            <textarea id="content" name="content" rows="5" maxlength="16000" required>Bonjour depuis Nicolabz Identity !
+Ce fichier a été créé avec Node.js et Google Drive API.</textarea>
+            <small>16 Kio maximum. Chaque envoi crée un nouveau fichier dans Mon Drive.</small>
+            <button id="save-file" class="primary-button" type="submit">Créer le fichier .txt dans Drive</button>
+          </form>
+          <div id="file-result" class="message-success" role="status" hidden>
+            Fichier créé : <strong id="file-result-name"></strong>
+            <a id="file-result-link" href="https://drive.google.com/" target="_blank" rel="noopener noreferrer">Ouvrir dans Google Drive ↗</a>
+          </div>
+        </section>
+        <button id="logout" class="secondary-button logout-button" type="button">Se déconnecter</button>
       </div>
 
       <div id="error" class="message-error" role="alert" hidden></div>

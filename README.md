@@ -7,7 +7,7 @@
 - **Synchronisation** : chaque utilisateur sauvegarde un JSON par application dans **son propre Google Drive**, dans l'espace privé `appDataFolder`.
 - **Stockage local du serveur** : SQLite (identités, sessions, états OAuth temporaires, jetons Drive chiffrés, index de fichiers).
 - **Exploitation** : une instance Node.js derrière Nginx, Podman, volume persistant, limites de taille, gestion des conflits par version.
-- **Page de test intégrée** : `/demo`, connexion Google et déconnexion sans serveur frontend supplémentaire.
+- **Page de test intégrée** : `/demo`, connexion Google, consentement Drive et création d’un vrai fichier `.txt` dans « Mon Drive », sans serveur frontend supplémentaire.
 
 > **Portée importante** : ceci est une **API centralisée avec Google comme fournisseur OpenID Connect**, et **non un fournisseur OIDC universel**. Les clients sont des applications web s'exécutant dans le navigateur, sur les origines explicitement autorisées. Pour connecter des outils tiers exigeant une découverte OIDC (`/.well-known/openid-configuration`), il faudra ajouter un véritable serveur OIDC (ex. `oidc-provider`) ou déployer Authentik. Les cookies de session ne sont jamais partagés entre les applications : chaque application interroge l'API centrale.
 
@@ -50,7 +50,7 @@ Console : https://console.cloud.google.com/
 1. **Créer un projet Google Cloud** (ou en sélectionner un existant).
 2. **APIs & Services → Library** : activer **Google Drive API**.
 3. **Google Auth Platform / OAuth consent screen** : configurer le nom de l'application, l'adresse e-mail de support, les domaines autorisés et le type d'audience (*External* pour des comptes Google personnels). Ajouter les comptes utilisateurs à la liste des **test users** tant que le projet est en mode Testing.
-4. Dans les autorisations (*Data Access*), déclarer les scopes nécessaires : `openid`, `email`, `profile` pour la connexion et **`https://www.googleapis.com/auth/drive.appdata`** pour la sauvegarde. Cette dernière autorisation est demandée **à part**, au moment de « Connecter Drive ».
+4. Dans les autorisations (*Data Access*), déclarer les scopes nécessaires : `openid`, `email`, `profile` pour la connexion, **`https://www.googleapis.com/auth/drive.appdata`** pour les JSON de synchronisation et **`https://www.googleapis.com/auth/drive.file`** pour créer un fichier `.txt` visible dans « Mon Drive ». Les permissions Drive sont demandées **séparément**, seulement lors d’une demande d’accès au Drive. La page `/demo` demande les deux scopes Drive ; les autres applications continuent de demander `drive.appdata` uniquement.
 5. **Clients → Create client → Web application**. Utiliser le **même client OAuth Google** pour toutes tes applications web : seul le serveur central communique avec Google.
 6. Déclarer **exactement** ces **Authorized redirect URIs** :
 
@@ -73,9 +73,11 @@ Console : https://console.cloud.google.com/
 
 Documentation Google : [OAuth 2.0 web-server](https://developers.google.com/identity/protocols/oauth2/web-server), [Drive appDataFolder](https://developers.google.com/workspace/drive/api/guides/appdata), [Scopes Drive](https://developers.google.com/workspace/drive/api/guides/api-specific-auth).
 
-### Pourquoi `drive.appdata` ?
+### Deux types de fichiers dans Google Drive
 
-Les fichiers sont invisibles dans l'interface classique de Google Drive et accessibles uniquement à cette **application OAuth Google**. Tous tes clients (`todo`, `budget`…) peuvent utiliser les données **par le serveur central**, car il emploie un seul client OAuth. Les autres applications Google Drive ne voient pas ce dossier. Les fichiers peuvent être perdus si l'utilisateur révoque/supprime les données de l'application : **prévoir des exports manuels pour les données importantes**.
+Les **fichiers JSON de synchronisation**, sous `drive.appdata`, sont invisibles dans l'interface classique de Google Drive et accessibles uniquement à cette **application OAuth Google**. Tous tes clients (`todo`, `budget`…) peuvent utiliser les données **par le serveur central**, car il emploie un seul client OAuth. Les autres applications Google Drive ne voient pas ce dossier. Les fichiers peuvent être perdus si l'utilisateur révoque/supprime les données de l'application : **prévoir des exports manuels pour les données importantes**.
+
+Le **fichier TXT de `/demo`** est au contraire créé à la racine de **« Mon Drive »**, avec le scope `drive.file`. Il est visible et téléchargeable dans Google Drive. Le scope `drive.file` autorise l’application à gérer les fichiers créés ou explicitement ouverts avec elle, pas tous les fichiers existants. Le consentement demandé depuis `/demo` utilise l’autorisation incrémentale de Google : il conserve les permissions précédentes. Un nouveau fichier est créé à chaque clic, même si le nom existe déjà.
 
 ## 3. Démarrage local
 
@@ -103,24 +105,31 @@ npm run dev
 - Ouvrir **http://localhost:4173**, cliquer sur **Connexion Google**, puis sur **Connecter Drive** ; tester « Sauvegarder » et « Charger ».
 - Toujours utiliser `http://localhost:4173` dans le navigateur, pas `http://127.0.0.1:4173`.
 
-### Test immédiat de la connexion Google via `/demo`
+### Test intégré de la connexion Google et de la création d’un TXT via `/demo`
 
 **Aucun client Todo/Budget à démarrer pour ce test.** Dès que l'API Node est lancée avec la configuration Google Cloud ci-dessus, ouvre :
 
 - **En local** : [http://localhost:3000/demo](http://localhost:3000/demo)
 - **Sur le NAS, derrière Nginx** : `https://auth.nicolabz.dev/demo`
 
-La page propose « Continuer avec Google », affiche le **nom et l'e-mail** après authentification, puis permet de **se déconnecter**. Le parcours suit exactement les routes existantes :
+La page propose « Continuer avec Google », affiche le **nom et l'e-mail** après authentification, demande ensuite le consentement Drive et permet de **créer un fichier `.txt` dans « Mon Drive »**, puis de se déconnecter. Le parcours suit exactement les routes existantes :
 
 1. `GET /demo` affiche la page statique rendue par Fastify (HTML/CSS/JS inclus dans l'image Podman).
-2. Le bouton redirige vers `/auth/google/start?app=demo&return_to=<URL-encodée de /demo>`.
+2. Le bouton passe par `GET /demo/login`, qui construit l’URL de connexion sur **`PUBLIC_BASE_URL`** (et non sur `location.origin`). Il redirige vers `/auth/google/start?app=demo&return_to=<URL-encodée de /demo>` sur le domaine canonique.
 3. Google renvoie vers `/auth/google/callback` ; le serveur vérifie les jetons et crée la session SQLite.
 4. Retour vers `/demo?auth=connected` ; la page vérifie la session avec `GET /api/session` et affiche le compte réellement connecté (elle ne fait pas confiance au seul paramètre `auth`).
-5. « Se déconnecter » effectue `POST /api/logout` avec le cookie de session.
+5. Une fois connecté, cliquer sur **« Autoriser Google Drive »**, même si une ancienne connexion Drive pour Todo existe déjà : la page passe par `GET /demo/drive`, puis `/auth/drive/start?app=demo&return_to=...`, et demande `drive.appdata` + `drive.file`.
+6. Après consentement, un formulaire de fichier apparaît : choisir un nom terminé par `.txt`, saisir du texte et cliquer sur **« Créer le fichier .txt dans Drive »**.
+7. Le navigateur appelle `POST /api/demo/text-file` avec une session valide. Node.js transmet un fichier `text/plain` à l’API Drive, sans `parents: ['appDataFolder']`, puis renvoie son lien. **Le fichier doit apparaître dans « Mon Drive »**.
+8. « Se déconnecter » effectue `POST /api/logout` avec le cookie de session.
 
 **Aucune variable d'environnement supplémentaire** ni inscription manuelle de `demo` dans `CLIENT_APPS_JSON` : l'application interne `demo` est déclarée automatiquement avec l'origine exacte de `PUBLIC_BASE_URL` et cet identifiant est réservé. Le domaine de l'API ne doit pas être réutilisé comme origine d'une autre application dans `CLIENT_APPS_JSON`.
 
-Cette page **teste l'authentification uniquement** (les routes de consentement Drive et de synchronisation ne sont pas disponibles pour l’identifiant réservé `demo`). Pour tester Drive, continuer avec `examples/web-client/` (Todo) sur son port déclaré. Les URL Google Cloud à enregistrer restent **les callbacks**, notamment `http://localhost:3000/auth/google/callback` ou `https://auth.nicolabz.dev/auth/google/callback` : **ne pas ajouter `/demo` comme URI de redirection Google**. Ne pas utiliser un mélange de `localhost` et `127.0.0.1`, ni ouvrir `/demo` avec un nom DNS différent de `PUBLIC_BASE_URL`.
+Cette page **teste l’authentification et la création d’un fichier texte visible**. Elle ne peut toujours **pas** accéder aux routes de synchronisation `/api/sync/demo` : pour valider les JSON versionnés dans `appDataFolder`, utiliser `examples/web-client/` (Todo) sur son port déclaré. Les URL Google Cloud à enregistrer restent **les callbacks**, notamment `http://localhost:3000/auth/google/callback` ou `https://auth.nicolabz.dev/auth/google/callback` : **ne pas ajouter `/demo` comme URI de redirection Google**. Ne pas utiliser un mélange de `localhost` et `127.0.0.1`, Pour se connecter, le navigateur doit pouvoir atteindre l’origine `PUBLIC_BASE_URL` ; si `/demo` est ouvert par IP ou sur un autre port, le bouton de connexion bascule automatiquement vers cette origine canonique. En production, privilégier l’accès direct par `https://auth.nicolabz.dev/demo` plutôt que par une IP. La page de session ouverte par IP ne partagera pas les cookies avec le domaine canonique.
+
+**Précautions :** les fichiers TXT de la démo ne sont pas supprimés automatiquement. Les noms sont limités à 100 caractères (`.txt` obligatoire), le contenu à **16 Kio UTF-8**, et la route d’écriture n’accepte que l’origine exacte de `PUBLIC_BASE_URL` et une session valide. Pour une instance accessible depuis Internet, configurer **`ALLOWED_EMAILS`** et une limitation de débit au reverse proxy ; cette démo ne doit pas être ouverte librement à des inconnus.
+
+**Migration depuis les versions précédentes :** aucun changement SQLite ni nouvelle variable d’environnement. En revanche, ajouter `drive.file` aux scopes de l’écran de consentement Google Cloud, redéployer l’image Podman, puis cliquer à nouveau sur **« Autoriser / renouveler les permissions Drive »** depuis `/demo` pour autoriser les fichiers visibles. Le booléen `driveConnected` peut être vrai avec un ancien jeton qui ne possède que `drive.appdata` : dans ce cas, un upload renvoie une erreur de permission et le nouveau consentement est nécessaire. **Les URL de callback OAuth ne changent pas.**
 
 Si Google refuse l'accès et renvoie du JSON d'erreur, consulter le tableau de dépannage. Vérifier notamment le compte dans les utilisateurs de test Google Cloud et le filtre `ALLOWED_EMAILS`.
 
@@ -273,8 +282,11 @@ Pour un nouvel outil, **déclarer un identifiant unique et son origine** dans `C
 | Méthode | Route | Fonction |
 | --- | --- | --- |
 | GET | `/health` | Vérification API + SQLite |
-| GET | `/demo` | Page HTML intégrée de connexion et déconnexion Google |
+| GET | `/demo` | Page HTML intégrée de connexion Google et création TXT |
 | GET | `/demo/demo.js`, `/demo/demo.css` | Assets locaux de la page de test |
+| GET | `/demo/login` | Connexion Google avec URL publique canonique |
+| GET | `/demo/drive` | Autorisation Google Drive pour `demo` (`drive.file` + `drive.appdata`) |
+| POST | `/api/demo/text-file` | Crée un `.txt` dans « Mon Drive » (session + origine API exigées) |
 | GET | `/auth/google/start?app=todo&return_to=...` | Début de connexion Google (redirection navigateur) |
 | GET | `/auth/google/callback` | Callback exclusivement utilisé par Google |
 | GET | `/auth/drive/start?app=todo&return_to=...` | Consentement Google Drive, session requise |
@@ -284,6 +296,24 @@ Pour un nouvel outil, **déclarer un identifiant unique et son origine** dans `C
 | POST | `/api/drive/disconnect` | Révoque si possible et supprime le refresh token local, **sans supprimer les fichiers** |
 | GET | `/api/sync/:appId` | Lit le JSON du Drive de l'utilisateur |
 | PUT | `/api/sync/:appId` | Sauvegarde `{ "version": 0, "data": { ... } }` |
+
+Exemple de requête de la page de démonstration :
+
+```http
+POST /api/demo/text-file
+Origin: https://auth.nicolabz.dev
+Content-Type: application/json
+
+{"filename":"essai.txt","content":"Bonjour depuis le NAS !"}
+```
+
+Réponse HTTP `201` :
+
+```json
+{"id":"ID_RETOURNE_PAR_GOOGLE","name":"essai.txt","url":"https://drive.google.com/file/d/ID_RETOURNE_PAR_GOOGLE/view"}
+```
+
+Un compte Google autorisé et la session navigateur sont indispensables. Dans le navigateur, le cookie HttpOnly est envoyé automatiquement (`credentials: 'same-origin'`).
 
 Toutes les routes `/api/sync/:appId` exigent **une session valide**, un en-tête `Origin` correspondant à l'application `appId`, et Drive connecté. Les routes de mutation exigent une origine autorisée pour limiter les attaques CSRF. Les appels navigateur doivent utiliser `credentials: 'include'` ; les requêtes `PUT` nécessitent un `Content-Type: application/json`.
 
@@ -317,7 +347,7 @@ Codes fréquents : `401 UNAUTHENTICATED`, `403 ORIGIN_FORBIDDEN`, `409 DRIVE_NOT
 - Session serveur **opaque**, hachée (SHA-256) en SQLite ; cookie `HttpOnly`, `Secure` en production, `SameSite=Lax`, préfixe `__Host-` en production, sans attribut `Domain`.
 - Refresh tokens Drive chiffrés en base avec **AES-256-GCM**. La clé doit rester **hors du volume SQLite** et être sauvegardée séparément. Changer cette clé sans procédure de rotation rend les jetons existants illisibles (reconnexion nécessaire).
 - CORS autorise seulement les origines déclarées ; les écritures exigent un en-tête `Origin` autorisé. Un client ne peut accéder qu'à son namespace depuis son origine.
-- Limite de corps HTTP, erreurs applicatives non détaillées, accès Drive au périmètre `drive.appdata`.
+- Limite de corps HTTP, erreurs applicatives non détaillées, accès Drive limité à `drive.appdata` pour la synchronisation et à `drive.file` pour la création des TXT de `/demo`.
 - Google Drive et SQLite sont synchronisés avec un index récupérable : le document Google Drive contient la version de référence. Après une interruption entre upload Drive et mise à jour SQLite, l'API peut retrouver le fichier par son nom.
 
 **Limites connues (à prendre en compte avant une ouverture publique importante) :**
@@ -358,12 +388,16 @@ Stocker la sauvegarde **chiffrée** et protégée, car elle contient les jetons 
 
 | Symptôme | Cause probable / action |
 | --- | --- |
+| `INVALID_RETURN_URL` | L’URL `return_to` du démarrage OAuth n’a pas une origine déclarée pour l’application. Pour `/demo`, la version 0.1.2 utilise `/demo/login` pour choisir automatiquement `PUBLIC_BASE_URL`. Vérifier que `PUBLIC_BASE_URL` correspond à l’URL externe réelle (schéma, domaine, port) et que le navigateur peut l’atteindre. Pour les autres applications, vérifier `CLIENT_APPS_JSON` et les URLs envoyées par les clients. Après modification du fichier d’environnement Podman, relancer le déploiement. |
 | `redirect_uri_mismatch` | Les URLs Google Cloud doivent correspondre **au caractère près** aux deux callbacks et à `PUBLIC_BASE_URL` (protocole, port, nom). |
 | `access_denied` / application non vérifiée | Vérifier consent screen, scopes, test users, restrictions de publication Google. |
 | `UNAUTHENTICATED` après login | Utiliser HTTPS sur tous les sous-domaines et `credentials: 'include'`. Vérifier le cookie dans les DevTools. En local : `localhost`, pas `127.0.0.1`. |
 | `ORIGIN_FORBIDDEN` | Origine non déclarée, mélange HTTP/HTTPS, mauvais `appId`, ou requête non issue d'un navigateur autorisé. |
 | `DRIVE_NOT_CONNECTED` | L'utilisateur n'a pas encore cliqué sur « Connecter Drive ». |
 | `DRIVE_RECONNECT_REQUIRED` | Refresh token révoqué/expiré (notamment mode Testing). Relancer le consentement Drive. |
+| `DRIVE_ACCESS_DENIED` lors du TXT | Le jeton ne possède pas encore `drive.file`, ou le compte a retiré le consentement. Cliquer sur « Autoriser / renouveler les permissions Drive » depuis `/demo` et accepter l’accès aux fichiers créés par l’application. |
+| `DRIVE_FILE_PERMISSION_MISSING` | Le consentement Google a été accordé sans `drive.file` ; vérifier le scope dans Google Cloud puis refaire la connexion Drive. |
+| `INVALID_FILENAME`, `TEXT_FILE_TOO_LARGE` | Nom `.txt` incorrect ou contenu de plus de 16 Kio UTF-8. |
 | `SYNC_CONFLICT` | Deux appareils ont modifié la même version : recharger et réconcilier. |
 | Erreur d'écriture SQLite | Vérifier les droits du volume Podman, l'utilisateur `node` et l'espace disque. |
 | Serveur joignable seulement localement | Vérifier Nginx et DNS ; le port `3000` est volontairement lié à `127.0.0.1` sur l'hôte. |
@@ -389,7 +423,7 @@ src/
 │   └── keyed-mutex.js        # Sérialisation des écritures par document
 ├── http/
 │   ├── app.js                # Routes, CORS, schémas HTTP, erreurs
-│   ├── demo/                 # Page /demo : HTML, CSS, JS, routes de fichiers
+│   ├── demo/                 # Page /demo : HTML, CSS, JS, consentement, création TXT
 │   └── cookies.js            # Paramètres de cookies
 └── lib/
     ├── crypto.js             # AES-256-GCM, hachage, PKCE

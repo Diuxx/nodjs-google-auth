@@ -17,7 +17,7 @@ const google = createGoogleAuth(config);
 const auth = createAuthService({ config, repo, google });
 const drive = createGoogleDrive({ config, repo, google });
 const sync = createSyncService({ drive });
-const app = await createApp({ config, repo, auth, google, sync, database });
+const app = await createApp({ config, repo, auth, google, sync, drive, database });
 
 let closing = false;
 async function shutdown() {

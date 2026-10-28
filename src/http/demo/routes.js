@@ -10,7 +10,26 @@ const assets = [
   content: readFileSync(new URL(asset.file, import.meta.url))
 }));
 
-export function registerDemoRoutes(app) {
+/**
+ * La connexion part toujours de PUBLIC_BASE_URL. Elle ne dépend jamais du
+ * domaine, de l’adresse IP ou du port utilisés pour afficher /demo.
+ * Le cookie OAuth est ainsi créé sur le même hôte que le callback Google.
+ */
+export function registerDemoRoutes(app, publicBaseUrl) {
+  app.get('/demo/login', (_request, reply) => {
+    const url = new URL('/auth/google/start', publicBaseUrl);
+    url.searchParams.set('app', 'demo');
+    url.searchParams.set('return_to', new URL('/demo', publicBaseUrl).href);
+    return reply.redirect(url.href);
+  });
+
+  app.get('/demo/drive', (_request, reply) => {
+    const url = new URL('/auth/drive/start', publicBaseUrl);
+    url.searchParams.set('app', 'demo');
+    url.searchParams.set('return_to', new URL('/demo', publicBaseUrl).href);
+    return reply.redirect(url.href);
+  });
+
   for (const asset of assets) {
     app.get(asset.path, (_request, reply) => reply
       .header('Cache-Control', 'no-store')
