@@ -5,6 +5,7 @@ import helmet from '@fastify/helmet';
 import { AppError, requireCondition } from '../lib/errors.js';
 import { requireAppOrigin } from '../lib/client-apps.js';
 import { registerDemoRoutes } from './demo/routes.js';
+import { registerHomeRoutes } from './home/routes.js';
 import { registerDemoTextRoutes } from './demo/text-routes.js';
 import { cookieSettings, setSessionCookie, clearSessionCookie, setFlowCookie, clearFlowCookie } from './cookies.js';
 
@@ -88,6 +89,7 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
     return reply.redirect(result.returnUrl);
   }
 
+  registerHomeRoutes(app, { repo, registeredApplications: config.clientApps.apps.size - 1 });
   registerDemoRoutes(app, config.publicBaseUrl);
   registerDemoTextRoutes(app, { config, drive, requireUser });
 

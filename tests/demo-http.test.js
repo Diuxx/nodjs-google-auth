@@ -14,7 +14,8 @@ function fixture({ user = null, drive = {} } = {}) {
   });
   const repo = {
     sessions: { find: token => token === 'demo-session' ? user : null, remove: () => {} },
-    drive: { getEncryptedToken: () => user ? 'encrypted-refresh-token' : null }
+    drive: { getEncryptedToken: () => user ? 'encrypted-refresh-token' : null },
+    statistics: { overview: () => ({ totalUsers: 6, activeUsers: 2, connectedDrives: 3 }) }
   };
   const auth = {
     start: (_type, appId, returnTo) => {
@@ -130,4 +131,27 @@ test('HTTP /demo : création TXT authentifiée, origine unique et validation JSO
   assert.equal(invalid.statusCode, 400);
   assert.equal(invalid.json().error.code, 'INVALID_FILENAME');
   assert.equal(writes.length, 1);
+});
+
+
+test('HTTP / : accueil et statut public provenant de SQLite', async t => {
+  const app = await fixture();
+  t.after(() => app.close());
+  const page = await app.inject({ method: 'GET', url: '/' });
+  assert.equal(page.statusCode, 200);
+  assert.match(page.headers['content-type'], /^text\/html/);
+  assert.match(page.body, /Utilisateurs uniques/);
+  assert.match(page.headers['content-security-policy'], /script-src 'self'/);
+
+  for (const route of ['/home/home.css', '/home/home.js']) {
+    const asset = await app.inject({ method: 'GET', url: route });
+    assert.equal(asset.statusCode, 200);
+  }
+  const status = await app.inject({ method: 'GET', url: '/api/public/status' });
+  assert.equal(status.statusCode, 200);
+  assert.deepEqual(status.json(), {
+    status: 'ok', checks: { api: 'ok', sqlite: 'ok' },
+    statistics: { totalUsers: 6, activeUsers: 2, connectedDrives: 3, registeredApplications: 1 }
+  });
+  assert.equal(status.headers['cache-control'], 'no-store');
 });

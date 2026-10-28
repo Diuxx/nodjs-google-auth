@@ -7,9 +7,40 @@
 - **Synchronisation** : chaque utilisateur sauvegarde un JSON par application dans **son propre Google Drive**, dans l'espace privé `appDataFolder`.
 - **Stockage local du serveur** : SQLite (identités, sessions, états OAuth temporaires, jetons Drive chiffrés, index de fichiers).
 - **Exploitation** : une instance Node.js derrière Nginx, Podman, volume persistant, limites de taille, gestion des conflits par version.
+- **Accueil intégré** : `/` présente le service, son état local et les compteurs anonymisés provenant de SQLite.
 - **Page de test intégrée** : `/demo`, connexion Google, consentement Drive et création d’un vrai fichier `.txt` dans « Mon Drive », sans serveur frontend supplémentaire.
 
 > **Portée importante** : ceci est une **API centralisée avec Google comme fournisseur OpenID Connect**, et **non un fournisseur OIDC universel**. Les clients sont des applications web s'exécutant dans le navigateur, sur les origines explicitement autorisées. Pour connecter des outils tiers exigeant une découverte OIDC (`/.well-known/openid-configuration`), il faudra ajouter un véritable serveur OIDC (ex. `oidc-provider`) ou déployer Authentik. Les cookies de session ne sont jamais partagés entre les applications : chaque application interroge l'API centrale.
+
+## Accueil et statistiques (v0.1.4)
+
+La page d’accueil est servie directement par Fastify à **`GET /`** (HTML/CSS/JS statiques avec chargement asynchrone des compteurs). Elle reprend la charte sombre/vert sauge de la démonstration et comporte un lien vers `/demo`.
+
+Le navigateur interroge **`GET /api/public/status`** sans authentification :
+
+```json
+{
+  "status": "ok",
+  "checks": { "api": "ok", "sqlite": "ok" },
+  "statistics": {
+    "totalUsers": 12,
+    "activeUsers": 3,
+    "connectedDrives": 4,
+    "registeredApplications": 2
+  }
+}
+```
+
+Les valeurs ci-dessus sont **illustratives**. Les chiffres réellement affichés viennent de la base SQLite de ton serveur :
+
+- **Utilisateurs uniques** : nombre de lignes `users`, donc nombre de **comptes Google distincts ayant terminé au moins une connexion réussie** depuis la création de la base (pas le nombre de visites, de requêtes ni de connexions). Un même compte sur plusieurs appareils ne compte qu’une fois.
+- **Utilisateurs avec session active** : nombre de **comptes distincts** ayant au moins une session SQLite non expirée, et non le nombre d’utilisateurs connectés à la seconde (sans signal de présence).
+- **Comptes Drive connectés** : nombre de lignes `drive_credentials`. Cela signifie qu’un refresh token est sauvegardé, **pas** qu’il est encore valide chez Google.
+- **Applications configurées** : applications déclarées dans `CLIENT_APPS_JSON`, hors client interne `demo`.
+
+Le statut **« API opérationnelle »** confirme la réponse HTTP et une requête SQLite réussie. Il ne teste **ni le service OAuth de Google ni Google Drive**, et ne garantit donc pas leur disponibilité. En cas d’échec du statut, la page affiche « Statut indisponible », sans inventer des chiffres. Les compteurs sont publics et agrégés : **aucun e-mail, nom, identifiant Google ou jeton n’est transmis**. Comme ces valeurs sont visibles par tout visiteur, protège le service par un reverse proxy si tu souhaites garder même les totaux privés. Le bouton **Actualiser** relance la lecture ; aucune mise à jour automatique en arrière-plan.
+
+Aucune migration SQLite, nouvelle dépendance ou variable d’environnement n’est nécessaire : la page utilise les tables existantes.
 
 ## 1. Schéma
 
@@ -94,6 +125,8 @@ npm test
 npm run dev
 ```
 
+- Accueil : http://localhost:3000/
+- Statut public et statistiques : http://localhost:3000/api/public/status
 - API : http://localhost:3000/health
 - Dans un **deuxième terminal**, démarrer le client web de démonstration :
 
@@ -210,7 +243,7 @@ curl -i http://127.0.0.1:3000/health
 curl -i https://auth.nicolabz.dev/health
 ```
 
-Résultat attendu : `{ "status": "ok" }`. **Cela confirme seulement que l'API et SQLite répondent**, pas que Google OAuth et Google Drive sont correctement configurés. **Ouvrir `https://auth.nicolabz.dev/demo`** pour vérifier la connexion Google sans autre application ; pour Drive, utiliser le client d’exemple avec un compte de test.
+Résultat attendu : `{ "status": "ok" }`. **L’accueil** est accessible sur `https://auth.nicolabz.dev/` et les compteurs sur `/api/public/status`. **Cela confirme seulement que l'API et SQLite répondent**, pas que Google OAuth et Google Drive sont correctement configurés. **Ouvrir `https://auth.nicolabz.dev/demo`** pour vérifier la connexion Google sans autre application ; pour Drive, utiliser le client d’exemple avec un compte de test.
 
 ### 4.5 Démarrage automatique après reboot
 
@@ -281,6 +314,9 @@ Pour un nouvel outil, **déclarer un identifiant unique et son origine** dans `C
 
 | Méthode | Route | Fonction |
 | --- | --- | --- |
+| GET | `/` | Présentation du service et tableau de bord public |
+| GET | `/home/home.js`, `/home/home.css` | Ressources locales de l’accueil |
+| GET | `/api/public/status` | Santé API/SQLite et compteurs agrégés issus de SQLite (public) |
 | GET | `/health` | Vérification API + SQLite |
 | GET | `/demo` | Page HTML intégrée de connexion Google et création TXT |
 | GET | `/demo/demo.js`, `/demo/demo.css` | Assets locaux de la page de test |
@@ -364,7 +400,7 @@ Codes fréquents : `401 UNAUTHENTICATED`, `403 ORIGIN_FORBIDDEN`, `409 DRIVE_NOT
 
 ## 8. SQLite : données et sauvegardes
 
-Les tables sont `users`, `sessions`, `oauth_flows`, `drive_credentials`, `sync_files`. **Aucun fichier JSON de l'utilisateur n'est stocké dans SQLite** : seulement un index vers le Drive. `PRAGMA journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000` sont configurés au démarrage.
+Les tables sont `users`, `sessions`, `oauth_flows`, `drive_credentials`, `sync_files`. Le tableau de bord public agrège les utilisateurs, les sessions non expirées et les autorisations Drive depuis ces tables. **Aucun fichier JSON de l'utilisateur n'est stocké dans SQLite** : seulement un index vers le Drive. `PRAGMA journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout=5000` sont configurés au démarrage.
 
 SQLite convient très bien pour un service sur NAS avec un seul processus. **Ne pas placer le fichier SQLite sur NFS/SMB** : utiliser le volume Podman sur le disque local du NAS.
 
@@ -382,13 +418,15 @@ Stocker la sauvegarde **chiffrée** et protégée, car elle contient les jetons 
 
 ### Vie privée / déconnexion
 
+Les **statistiques agrégées** de `/api/public/status` sont publiques et ne divulguent pas les données individuelles ; elles divulguent toutefois le nombre de comptes et d’autorisations Drive enregistrés. Protéger cet endpoint si ces nombres doivent rester internes.
+
 `POST /api/drive/disconnect` supprime le token stocké et tente une révocation côté Google ; il ne supprime **pas** les JSON dans Google Drive. `POST /api/logout` supprime uniquement la session en cours. La suppression totale des comptes et données est **hors du périmètre de cette V1** : ne pas promettre une fonction d'effacement complet sans l'implémenter.
 
 ## 9. Dépannage
 
 | Symptôme | Cause probable / action |
 | --- | --- |
-| `INVALID_RETURN_URL` | L’URL `return_to` du démarrage OAuth n’a pas une origine déclarée pour l’application. Pour `/demo`, la version 0.1.2 utilise `/demo/login` pour choisir automatiquement `PUBLIC_BASE_URL`. Vérifier que `PUBLIC_BASE_URL` correspond à l’URL externe réelle (schéma, domaine, port) et que le navigateur peut l’atteindre. Pour les autres applications, vérifier `CLIENT_APPS_JSON` et les URLs envoyées par les clients. Après modification du fichier d’environnement Podman, relancer le déploiement. |
+| `INVALID_RETURN_URL` | L’URL `return_to` du démarrage OAuth n’a pas une origine déclarée pour l’application. Pour `/demo`, la connexion utilise `/demo/login` pour choisir automatiquement `PUBLIC_BASE_URL`. Vérifier que `PUBLIC_BASE_URL` correspond à l’URL externe réelle (schéma, domaine, port) et que le navigateur peut l’atteindre. Pour les autres applications, vérifier `CLIENT_APPS_JSON` et les URLs envoyées par les clients. Après modification du fichier d’environnement Podman, relancer le déploiement. |
 | `redirect_uri_mismatch` | Les URLs Google Cloud doivent correspondre **au caractère près** aux deux callbacks et à `PUBLIC_BASE_URL` (protocole, port, nom). |
 | `access_denied` / application non vérifiée | Vérifier consent screen, scopes, test users, restrictions de publication Google. |
 | `UNAUTHENTICATED` après login | Utiliser HTTPS sur tous les sous-domaines et `credentials: 'include'`. Vérifier le cookie dans les DevTools. En local : `localhost`, pas `127.0.0.1`. |
@@ -423,6 +461,7 @@ src/
 │   └── keyed-mutex.js        # Sérialisation des écritures par document
 ├── http/
 │   ├── app.js                # Routes, CORS, schémas HTTP, erreurs
+│   ├── home/                 # Page / : présentation, statut et statistiques publiques
 │   ├── demo/                 # Page /demo : HTML, CSS, JS, consentement, création TXT
 │   └── cookies.js            # Paramètres de cookies
 └── lib/
@@ -431,7 +470,7 @@ src/
     └── errors.js
 ```
 
-`tests/` contient des tests de logique OAuth (avec doubles), sécurité, synchronisation, pages `/demo` et appels Drive simulés. `examples/web-client/` permet de valider l'intégration réelle dans un navigateur, une fois Google Cloud configuré. `ops/` contient le déploiement Podman et la configuration Nginx de référence.
+`tests/` contient des tests de logique OAuth (avec doubles), sécurité, synchronisation, accueil `/`, pages `/demo` et appels Drive simulés. `examples/web-client/` permet de valider l'intégration réelle dans un navigateur, une fois Google Cloud configuré. `ops/` contient le déploiement Podman et la configuration Nginx de référence.
 
 ## 11. Vérifications
 
@@ -439,6 +478,7 @@ src/
 npm run check  # Analyse syntaxique des fichiers JS via node --check
 npm test       # Tests unitaires / simulation des API
 curl http://localhost:3000/health
+curl http://localhost:3000/api/public/status
 ```
 
 Les tests utilisent `node:test` et n'envoient **aucune** requête à Google (les tests HTTP utilisent des requêtes Fastify injectées). Un test d'intégration réel doit être réalisé avec un compte Google de test, un navigateur et les deux URLs de redirection enregistrées dans Google Cloud.
@@ -446,3 +486,11 @@ Les tests utilisent `node:test` et n'envoient **aucune** requête à Google (les
 ---
 
 **Architecture volontairement légère** : un service Node.js, une base SQLite, et le Drive personnel de chaque utilisateur. L'objectif est de faire évoluer séparément l'authentification, les clients et la synchronisation, sans réécrire toute la plateforme.
+
+## Évolution future : intégration Google Calendar (non implémentée)
+
+L’architecture peut évoluer vers un module `src/calendar/` proposant création, consultation, modification et suppression d’événements. Il faudra activer **Google Calendar API** dans Google Cloud, demander **séparément** le consentement utilisateur à `https://www.googleapis.com/auth/calendar.events` et mettre en place des autorisations par fonctionnalité (un utilisateur peut refuser Calendar tout en conservant Drive). À ce stade, le projet stocke un refresh token pour Drive : **ne pas remplacer ce jeton silencieusement** par un jeton Calendar ; prévoir une gestion explicite des consentements, des scopes et de la révocation.
+
+Un premier futur endpoint serait `POST /api/calendar/events` pour créer un événement dans l’agenda `primary` de l’utilisateur avec un début, une fin, un titre et le fuseau horaire. Aucun nouvel endpoint Calendar ni scope Calendar n’est livré dans cette version.
+
+Références : https://developers.google.com/workspace/calendar/api/v3/reference/events/insert et https://developers.google.com/workspace/calendar/api/auth.

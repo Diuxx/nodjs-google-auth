@@ -3,6 +3,14 @@ import { hashToken } from '../lib/crypto.js';
 export function createRepositories(db, clock = () => Date.now()) {
   const now = () => clock();
   return {
+    statistics: {
+      overview() {
+        return db.prepare(`SELECT
+          (SELECT COUNT(*) FROM users) AS totalUsers,
+          (SELECT COUNT(DISTINCT user_id) FROM sessions WHERE expires_at > @now) AS activeUsers,
+          (SELECT COUNT(*) FROM drive_credentials) AS connectedDrives`).get({ now: now() });
+      }
+    },
     users: {
       upsert(googleUser) {
         db.prepare(`INSERT INTO users (google_sub, email, display_name, picture_url, created_at, updated_at)

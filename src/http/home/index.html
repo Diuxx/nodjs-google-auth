@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="description" content="Nicolabz Identity : tableau de bord du service d'authentification Google et de synchronisation Drive.">
+  <title>Nicolabz Identity · Vue d'ensemble</title>
+  <link rel="stylesheet" href="/home/home.css">
+  <script src="/home/home.js" type="module"></script>
+</head>
+<body>
+  <div class="shell">
+    <header class="topbar">
+      <a class="brand" href="/" aria-label="Nicolabz Identity, accueil">
+        <span class="brand-mark" aria-hidden="true">N</span>
+        <span>nicolabz<span class="brand-muted">.identity</span></span>
+      </a>
+      <div class="header-right">
+        <span class="version">SERVICE HUB <span aria-hidden="true">/</span> v0.1</span>
+        <a class="nav-link" href="/demo">Démo OAuth <span aria-hidden="true">↗</span></a>
+      </div>
+    </header>
+
+    <main>
+      <section class="overview" aria-labelledby="page-title">
+        <div class="overview-copy">
+          <p class="eyebrow"><span class="eyebrow-line" aria-hidden="true"></span> AUTHENTIFICATION &amp; DATA SYNC</p>
+          <h1 id="page-title">Une identité.<br><span>Plusieurs applications.</span></h1>
+          <p class="intro">API centralisée pour connecter les applications via Google, gérer les sessions et synchroniser leurs données JSON dans Google Drive.</p>
+          <div class="actions">
+            <a class="button primary" href="/demo">Tester avec Google <span aria-hidden="true">↗</span></a>
+            <a class="button secondary" href="/api/public/status">Statut JSON <span aria-hidden="true">↗</span></a>
+          </div>
+        </div>
+
+        <aside class="health-panel" aria-labelledby="health-title">
+          <div class="panel-heading">
+            <span id="health-title" class="micro-label">ÉTAT DU SERVICE</span>
+            <button id="refresh" class="refresh" type="button" aria-label="Actualiser l'état et les statistiques" title="Actualiser">↻</button>
+          </div>
+          <div class="health-state">
+            <span id="status-indicator" class="status-indicator is-loading" aria-hidden="true"></span>
+            <strong id="service-status" role="status" aria-live="polite">Vérification…</strong>
+          </div>
+          <p id="status-description" class="health-description">Contrôle de l’API et de SQLite</p>
+          <div class="health-footer">
+            <span>API <span class="separator">·</span> SQLite</span>
+            <span>Vérifié à <time id="last-check">—</time></span>
+          </div>
+        </aside>
+      </section>
+
+      <section class="metrics" aria-label="Statistiques d'utilisation" aria-live="polite">
+        <article class="metric">
+          <span class="metric-label">UTILISATEURS UNIQUES</span>
+          <strong id="total-users" class="metric-value">—</strong>
+          <span class="metric-help">Comptes ayant déjà accédé à l'API</span>
+        </article>
+        <article class="metric">
+          <span class="metric-label">UTILISATEURS ACTIFS</span>
+          <strong id="active-users" class="metric-value">—</strong>
+          <span class="metric-help">Avec au moins une session valide</span>
+        </article>
+        <article class="metric">
+          <span class="metric-label">COMPTES DRIVE</span>
+          <strong id="connected-drives" class="metric-value">—</strong>
+          <span class="metric-help">Autorisations Drive enregistrées</span>
+        </article>
+        <article class="metric">
+          <span class="metric-label">APPLICATIONS</span>
+          <strong id="registered-apps" class="metric-value">—</strong>
+          <span class="metric-help">Clients configurés, hors démo</span>
+        </article>
+      </section>
+
+      <div class="detail-grid">
+        <section class="detail-panel" aria-labelledby="modules-title">
+          <div class="section-heading">
+            <h2 id="modules-title">Modules</h2>
+            <span class="micro-label">CAPABILITIES</span>
+          </div>
+          <div class="module-row">
+            <div class="module-code">01</div>
+            <div class="module-content"><strong>Google Auth</strong><p>OAuth 2.0 / OpenID Connect, sessions HTTP sécurisées</p></div>
+            <span class="chip enabled">Intégré</span>
+          </div>
+          <div class="module-row">
+            <div class="module-code">02</div>
+            <div class="module-content"><strong>Drive Sync</strong><p>Documents JSON, versions et conflits de synchronisation</p></div>
+            <span class="chip enabled">Intégré</span>
+          </div>
+          <div class="module-row">
+            <div class="module-code">03</div>
+            <div class="module-content"><strong>Drive TXT</strong><p>Création de fichiers texte depuis la page /demo</p></div>
+            <span class="chip enabled">Intégré</span>
+          </div>
+          <div class="module-row">
+            <div class="module-code">04</div>
+            <div class="module-content"><strong>Google Calendar</strong><p>Gestion d’événements, sous réserve d’autorisation</p></div>
+            <span class="chip planned">Prévu</span>
+          </div>
+        </section>
+
+        <section class="detail-panel" aria-labelledby="api-title">
+          <div class="section-heading">
+            <h2 id="api-title">Interfaces</h2>
+            <span class="micro-label">HTTP API</span>
+          </div>
+          <div class="endpoint-row"><span class="method">GET</span><code>/health</code><a href="/health" aria-label="Ouvrir le contrôle de santé">↗</a></div>
+          <div class="endpoint-row"><span class="method">GET</span><code>/api/public/status</code><a href="/api/public/status" aria-label="Ouvrir les statistiques publiques">↗</a></div>
+          <div class="endpoint-row"><span class="method">GET</span><code>/api/session</code><a href="/api/session" aria-label="Ouvrir la session">↗</a></div>
+          <div class="endpoint-row"><span class="method">GET</span><code>/api/sync/:appId</code><span class="endpoint-note">Auth.</span></div>
+          <div class="endpoint-row"><span class="method write">PUT</span><code>/api/sync/:appId</code><span class="endpoint-note">Auth.</span></div>
+          <div class="stack"><span>STACK</span> Node.js <b>·</b> Fastify <b>·</b> SQLite <b>·</b> Google APIs <b>·</b> Podman</div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="footer">
+      <span>NICOLABZ / IDENTITY</span>
+      <span>Statut = contrôles locaux de l’API et SQLite, sans test des services Google.</span>
+    </footer>
+  </div>
+</body>
+</html>

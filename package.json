@@ -1,6 +1,6 @@
 {
   "name": "nicolabz-identity",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "type": "module",
   "description": "Connexion Google et synchronisation Google Drive centralisées pour applications web.",
