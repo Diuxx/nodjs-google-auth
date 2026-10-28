@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Nicolabz Identity — client de démonstration</title>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { background: #111716; color: #e9f2ed; margin: 0 auto; padding: 3rem 1.25rem; max-width: 680px; }
+    h1 { font-size: 2rem; } p { color: #b8cac0; }
+    button { background: #a7c3ae; color: #101910; border: 0; padding: .7rem 1rem; margin: .25rem; border-radius: .5rem; cursor: pointer; }
+    textarea { width: 100%; min-height: 180px; box-sizing: border-box; background: #202c27; color: #f2fff7; border: 1px solid #5b7567; padding: 1rem; border-radius: .5rem; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; padding: 1rem; background: #202c27; border-radius: .5rem; }
+  </style>
+</head>
+<body>
+  <h1>Nicolabz Identity</h1>
+  <p>Application Todo de démonstration : connexion Google et sauvegarde dans Drive.</p>
+  <div>
+    <button id="login">Connexion Google</button>
+    <button id="drive">Connecter Drive</button>
+    <button id="logout">Déconnexion</button>
+  </div>
+  <p>Document JSON (objet ou tableau). Les versions empêchent les écrasements silencieux.</p>
+  <textarea id="editor" spellcheck="false">{"tasks":[]}</textarea>
+  <div>
+    <button id="load">Charger depuis Drive</button>
+    <button id="save">Sauvegarder dans Drive</button>
+  </div>
+  <pre id="status" role="status">Initialisation…</pre>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
