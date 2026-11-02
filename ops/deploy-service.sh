@@ -9,7 +9,7 @@ readonly SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 readonly PROJECT_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd)"
 readonly APP_NAME="nicolabz-identity"
 readonly IMAGE_NAME="localhost/nicolabz-identity:latest"
-readonly VOLUME_NAME="nicolabz-identity-data"
+readonly HOST_DATA_DIR="/var/volumes/nicolabz-identity"
 readonly ENV_FILE="${HOME}/.config/nicolabz-identity/identity.env"
 readonly QUADLET_FILE="${HOME}/.config/containers/systemd/nicolabz-identity.container"
 readonly WEBROOT="/var/www/letsencrypt"
@@ -18,6 +18,8 @@ readonly PORT=3000
 DOMAIN=""
 EMAIL=""
 SKIP_BUILD=false
+CONFIGURE_ENV=false
+TEMP_ENV_FILE=""
 SITE_FILE=""
 SITE_LINK=""
 
@@ -27,14 +29,16 @@ fail() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'USAGE'
-Usage: ./ops/deploy-vps.sh [--domain auth.example.com] [--email admin@example.com] [--skip-build]
+Usage: ./ops/deploy-vps.sh [--domain auth.example.com] [--email admin@example.com] [--skip-build] [--configure-env]
 
 Without arguments, the script asks for the domain and Let's Encrypt email.
+On first deployment it also prompts for Google credentials and client apps.
 Run as the SSH user that will own the rootless Podman container (not sudo).
 
 --domain       Public HTTPS domain for the service
 --email        Email for Let's Encrypt expiry notices
 --skip-build   Use an image already built/loaded on this server
+--configure-env  Interactively edit the existing environment configuration
 -h, --help     Display this help
 USAGE
 }
@@ -48,6 +52,7 @@ parse_arguments() {
         shift 2
         ;;
       --skip-build) SKIP_BUILD=true; shift ;;
+      --configure-env) CONFIGURE_ENV=true; shift ;;
       -h|--help) usage; exit 0 ;;
       *) fail "Unknown option: $1 (see --help)" ;;
     esac
@@ -91,33 +96,174 @@ check_prerequisites() {
 
 read_env_value() {
   local key="$1"
+  [[ -f "$ENV_FILE" ]] || return 0
   sed -n "s/^${key}=//p" "$ENV_FILE" | tail -n 1
 }
 
-prepare_environment() {
-  mkdir -p "$(dirname "$ENV_FILE")"
-  if [[ ! -f "$ENV_FILE" ]]; then
-    cp "$PROJECT_DIR/ops/production.env.example" "$ENV_FILE"
-    chmod 600 "$ENV_FILE"
-    local secret
-    secret="$(openssl rand -base64 32 | tr -d '\n')"
-    sed -i \
-      -e "s|^PUBLIC_BASE_URL=.*|PUBLIC_BASE_URL=https://${DOMAIN}|" \
-      -e "s|^TOKEN_ENCRYPTION_KEY_BASE64=.*|TOKEN_ENCRYPTION_KEY_BASE64=${secret}|" \
-      "$ENV_FILE"
-    info "Created $ENV_FILE with a unique encryption key."
-    warn 'Edit GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, CLIENT_APPS_JSON and ALLOWED_EMAILS before deploying.'
-    printf 'Edit: nano %s\nThen rerun the same deployment command.\n' "$ENV_FILE"
-    exit 0
+# Secrets are read from the terminal rather than CLI arguments (shell history / ps).
+prompt_secret() {
+  local label="$1" current="$2" input
+  local suffix=''
+  [[ -n "$current" && "$current" != REMPLACER* ]] && suffix=' [Enter to keep existing value]'
+  read -r -s -p "$label$suffix: " input || fail 'Input cancelled.'
+  printf '\n'
+  REPLY="${input:-$current}"
+  [[ -n "$REPLY" && "$REPLY" != REMPLACER* ]] || fail "$label is required."
+  [[ "$REPLY" != *$'\n'* && "$REPLY" != *$'\r'* ]] || fail "$label contains a newline."
+}
+
+prompt_client_id() {
+  local previous="$1" input hint=''
+  [[ -n "$previous" && "$previous" != REMPLACER* ]] && hint=" [$previous]"
+  read -r -p "Google OAuth client ID$hint: " input || fail 'Input cancelled.'
+  REPLY="${input:-$previous}"
+  [[ "$REPLY" =~ ^[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$ ]] || fail 'Invalid Google OAuth client ID.'
+}
+
+# Interactive app list: only simple HTTPS origins are accepted, making JSON encoding safe.
+# Client identifiers and origins are intentionally restricted to avoid free-form JSON input.
+prompt_client_apps() {
+  local previous="$1" answer app_id raw_origins origin part app_json='[' comma=''
+  local -a origins
+  local -A registered_ids=() registered_origins=()
+
+  if [[ -n "$previous" && "$previous" != REMPLACER* ]]; then
+    read -r -p 'Keep existing client applications? [Y/n]: ' answer || fail 'Input cancelled.'
+    if [[ -z "$answer" || "$answer" =~ ^[Yy]$ ]]; then
+      REPLY="$previous"
+      return 0
+    fi
   fi
 
-  chmod 600 "$ENV_FILE"
+  info 'Configure authorized applications (the built-in /demo app is automatic).'
+  while :; do
+    read -r -p 'Application ID (e.g. budget; blank to finish): ' app_id || fail 'Input cancelled.'
+    if [[ -z "$app_id" ]]; then
+      [[ "$app_json" != '[' ]] || { warn 'At least one client application is required.'; continue; }
+      break
+    fi
+    if [[ ! "$app_id" =~ ^[a-z][a-z0-9_-]{0,39}$ || "$app_id" == demo || -v registered_ids[$app_id] ]]; then
+      warn 'Invalid, reserved or duplicate application ID.'
+      continue
+    fi
+
+    read -r -p "Authorized HTTPS origins for $app_id (comma separated): " raw_origins || fail 'Input cancelled.'
+    IFS=',' read -r -a origins <<< "$raw_origins"
+    local origin_json='[' origin_separator='' valid=true
+    for part in "${origins[@]}"; do
+      origin="${part#"${part%%[![:space:]]*}"}"
+      origin="${origin%"${origin##*[![:space:]]}"}"
+      # The project's production mode requires HTTPS and exact browser origins.
+      if [[ ! "$origin" =~ ^https://[A-Za-z0-9][A-Za-z0-9.-]*(:[0-9]{1,5})?$ || "$origin" == "https://$DOMAIN" || -v registered_origins[$origin] ]]; then
+        warn "Invalid, API-reserved or duplicate origin: $origin"
+        valid=false
+        break
+      fi
+      origin_json+="${origin_separator}\"${origin}\""
+      origin_separator=','
+    done
+    if [[ "$valid" == false || "$origin_json" == '[' ]]; then
+      warn 'Please enter at least one valid HTTPS origin; no paths or trailing slash.'
+      continue
+    fi
+    origin_json+=']'
+    for part in "${origins[@]}"; do
+      origin="${part#"${part%%[![:space:]]*}"}"
+      origin="${origin%"${origin##*[![:space:]]}"}"
+      registered_origins["$origin"]=1
+    done
+    registered_ids["$app_id"]=1
+    app_json+="${comma}{\"id\":\"${app_id}\",\"origins\":${origin_json}}"
+    comma=','
+  done
+  REPLY="${app_json}]"
+}
+
+prompt_allowed_emails() {
+  local current="$1" input answer
+  read -r -p "Allowed Google emails (comma-separated; blank = unrestricted) [$current]: " input || fail 'Input cancelled.'
+  REPLY="${input:-$current}"
+  [[ "$REPLY" != *$'\n'* && "$REPLY" != *$'\r'* ]] || fail 'Invalid email list.'
+  if [[ -z "$REPLY" ]]; then
+    warn 'With ALLOWED_EMAILS empty, any account authorized by the Google consent screen may sign in.'
+    read -r -p 'Continue without an email allowlist? [y/N]: ' answer || fail 'Input cancelled.'
+    [[ "$answer" =~ ^[Yy]$ ]] || fail 'Configuration cancelled. No changes were saved.'
+  fi
+}
+
+# Replace only managed keys, preserving custom settings and preventing partial writes.
+write_environment() {
+  local client_id="$1" client_secret="$2" apps="$3" emails="$4" encryption_key="$5"
+  local source_file="$PROJECT_DIR/ops/production.env.example" line key
+  local -A updated_keys=() seen_keys=()
+  local -a key_order=(NODE_ENV HOST PORT PUBLIC_BASE_URL DATABASE_PATH GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET TOKEN_ENCRYPTION_KEY_BASE64 CLIENT_APPS_JSON ALLOWED_EMAILS)
+
+  [[ -f "$ENV_FILE" ]] && source_file="$ENV_FILE"
+  updated_keys[NODE_ENV]=production
+  updated_keys[HOST]=0.0.0.0
+  updated_keys[PORT]="$PORT"
+  updated_keys[PUBLIC_BASE_URL]="https://$DOMAIN"
+  updated_keys[DATABASE_PATH]=/app/data/identity.sqlite
+  updated_keys[GOOGLE_CLIENT_ID]="$client_id"
+  updated_keys[GOOGLE_CLIENT_SECRET]="$client_secret"
+  updated_keys[TOKEN_ENCRYPTION_KEY_BASE64]="$encryption_key"
+  updated_keys[CLIENT_APPS_JSON]="$apps"
+  updated_keys[ALLOWED_EMAILS]="$emails"
+
+  TEMP_ENV_FILE="$(mktemp "${ENV_FILE}.XXXXXX")"
+  chmod 600 "$TEMP_ENV_FILE"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" =~ ^([A-Z_][A-Z0-9_]*)= ]]; then
+      key="${BASH_REMATCH[1]}"
+      if [[ -v updated_keys[$key] ]]; then
+        [[ -v seen_keys[$key] ]] || printf '%s=%s\n' "$key" "${updated_keys[$key]}" >> "$TEMP_ENV_FILE"
+        seen_keys["$key"]=1
+        continue
+      fi
+    fi
+    printf '%s\n' "$line" >> "$TEMP_ENV_FILE"
+  done < "$source_file"
+
+  for key in "${key_order[@]}"; do
+    [[ -v seen_keys[$key] ]] || printf '%s=%s\n' "$key" "${updated_keys[$key]}" >> "$TEMP_ENV_FILE"
+  done
+  mv -f -- "$TEMP_ENV_FILE" "$ENV_FILE"
+  TEMP_ENV_FILE=''
+  info "Environment saved to $ENV_FILE (permissions 600)."
+}
+
+configure_environment() {
+  [[ -t 0 ]] || fail 'An interactive terminal is required to configure the environment.'
+  local current_client_id current_client_secret current_apps current_emails current_key
+  local client_id client_secret apps emails answer
+
+  current_client_id="$(read_env_value GOOGLE_CLIENT_ID)"
+  current_client_secret="$(read_env_value GOOGLE_CLIENT_SECRET)"
+  current_apps="$(read_env_value CLIENT_APPS_JSON)"
+  current_emails="$(read_env_value ALLOWED_EMAILS)"
+  current_key="$(read_env_value TOKEN_ENCRYPTION_KEY_BASE64)"
+  [[ "$current_key" != REMPLACER* ]] || current_key=''
+
+  prompt_client_id "$current_client_id"; client_id="$REPLY"
+  prompt_secret 'Google OAuth client secret (hidden)' "$current_client_secret"; client_secret="$REPLY"
+  prompt_client_apps "$current_apps"; apps="$REPLY"
+  prompt_allowed_emails "$current_emails"; emails="$REPLY"
+
+  printf '\nConfiguring %s with %s.\n' "$ENV_FILE" "https://$DOMAIN"
+  read -r -p 'Save these settings and continue deployment? [y/N]: ' answer || fail 'Input cancelled.'
+  [[ "$answer" =~ ^[Yy]$ ]] || fail 'Configuration cancelled. No changes were saved.'
+
+  # Never rotate the encryption key during a reconfiguration; existing tokens need it.
+  [[ -n "$current_key" ]] || current_key="$(openssl rand -base64 32 | tr -d '\n')"
+  write_environment "$client_id" "$client_secret" "$apps" "$emails" "$current_key"
+}
+
+validate_environment() {
   [[ "$(read_env_value NODE_ENV)" == production ]] || fail 'Set NODE_ENV=production in identity.env.'
   [[ "$(read_env_value HOST)" == 0.0.0.0 ]] || fail 'Set HOST=0.0.0.0 in identity.env.'
   [[ "$(read_env_value PORT)" == "$PORT" ]] || fail "Set PORT=$PORT in identity.env."
   [[ "$(read_env_value DATABASE_PATH)" == /app/data/identity.sqlite ]] || fail 'DATABASE_PATH must be /app/data/identity.sqlite.'
   [[ "$(read_env_value PUBLIC_BASE_URL)" == "https://$DOMAIN" ]] || fail "PUBLIC_BASE_URL must be https://$DOMAIN."
-
   local key value
   for key in GOOGLE_CLIENT_ID GOOGLE_CLIENT_SECRET TOKEN_ENCRYPTION_KEY_BASE64 CLIENT_APPS_JSON; do
     value="$(read_env_value "$key")"
@@ -126,6 +272,23 @@ prepare_environment() {
   if [[ -z "$(read_env_value ALLOWED_EMAILS)" ]]; then
     warn 'ALLOWED_EMAILS is empty: any Google user allowed by the OAuth consent screen can sign in.'
   fi
+}
+
+prepare_environment() {
+  mkdir -p "$(dirname "$ENV_FILE")"
+  if [[ -f "$ENV_FILE" ]]; then
+    chmod 600 "$ENV_FILE"
+    if [[ "$(read_env_value PUBLIC_BASE_URL)" != "https://$DOMAIN" ]]; then
+      fail 'Existing PUBLIC_BASE_URL differs from the requested domain; domain migration is not automatic.'
+    fi
+  fi
+
+  if [[ ! -f "$ENV_FILE" || "$CONFIGURE_ENV" == true ]]; then
+    configure_environment
+  else
+    info "Using existing $ENV_FILE (use --configure-env to edit interactively)."
+  fi
+  validate_environment
 }
 
 ensure_host_packages() {
@@ -154,9 +317,34 @@ build_image() {
   fi
 }
 
+# A bind mount makes SQLite data directly accessible as the SSH user.
+# Only the application's directory is owned by that user, not /var/volumes itself.
+prepare_data_directory() {
+  if sudo test -L /var/volumes; then
+    fail 'Refusing symlinked /var/volumes directory.'
+  fi
+  if sudo test -e /var/volumes; then
+    sudo test -d /var/volumes || fail '/var/volumes is not a directory.'
+  else
+    sudo install -d -m 755 /var/volumes
+  fi
+  if sudo test -L "$HOST_DATA_DIR"; then
+    fail "Refusing to use symlinked data directory: $HOST_DATA_DIR"
+  fi
+  if sudo test -e "$HOST_DATA_DIR"; then
+    sudo test -d "$HOST_DATA_DIR" || fail "Not a directory: $HOST_DATA_DIR"
+    local owner
+    owner="$(sudo stat -c '%u' "$HOST_DATA_DIR")"
+    [[ "$owner" == "$(id -u)" ]] || fail "$HOST_DATA_DIR is owned by UID $owner, expected $(id -u). Fix manually."
+  else
+    sudo install -d -m 700 -o "$(id -u)" -g "$(id -g)" "$HOST_DATA_DIR"
+  fi
+  chmod 700 "$HOST_DATA_DIR"
+}
+
 write_quadlet() {
   mkdir -p "$(dirname "$QUADLET_FILE")"
-  podman volume exists "$VOLUME_NAME" || podman volume create "$VOLUME_NAME" >/dev/null
+  prepare_data_directory
 
   cat > "$QUADLET_FILE" <<QUADLET
 # Managed by ops/deploy-vps.sh; do not store secrets here.
@@ -168,7 +356,11 @@ Image=$IMAGE_NAME
 ContainerName=$APP_NAME
 EnvironmentFile=$ENV_FILE
 PublishPort=127.0.0.1:$PORT:$PORT
-Volume=$VOLUME_NAME:/app/data:Z
+# Keep the running UID/GID equal to the host SSH user, so files remain accessible.
+UserNS=keep-id
+User=$(id -u)
+Group=$(id -g)
+Volume=$HOST_DATA_DIR:/app/data:Z
 Pull=never
 
 [Service]
@@ -184,13 +376,9 @@ QUADLET
   systemctl --user daemon-reload || fail 'Unable to contact your user systemd instance. Reconnect over SSH and retry.'
   systemctl --user cat "$APP_NAME.service" >/dev/null || fail 'Quadlet did not generate its systemd unit. Check podman-system-generator.'
 
-  # Migrate the container created by the older ops/deploy-podman.sh.
+  # Avoid replacing a standalone container, which may use different storage.
   if podman container exists "$APP_NAME" && ! systemctl --user is-active --quiet "$APP_NAME.service"; then
-    local current_image
-    current_image="$(podman inspect --format '{{.ImageName}}' "$APP_NAME")"
-    [[ "$current_image" == "$IMAGE_NAME" ]] || fail "Container $APP_NAME belongs to a different image; refusing to remove it."
-    info 'Removing the old non-Quadlet container (named SQLite volume is preserved).'
-    podman rm -f "$APP_NAME" >/dev/null
+    fail "A container named $APP_NAME already exists outside the running Quadlet. Check and remove it manually before deployment."
   fi
 
   systemctl --user restart "$APP_NAME.service" || {
@@ -365,6 +553,7 @@ ensure_certificate() {
 }
 
 main() {
+  trap '[[ -z "$TEMP_ENV_FILE" ]] || rm -f -- "$TEMP_ENV_FILE"' EXIT
   parse_arguments "$@"
   info "Deploying $APP_NAME on https://$DOMAIN"
   check_prerequisites
@@ -377,7 +566,7 @@ main() {
   info 'Deployment completed.'
   printf '\nURL:       https://%s/\nDemo:      https://%s/demo\nHealth:    https://%s/health\n' "$DOMAIN" "$DOMAIN" "$DOMAIN"
   printf 'Logs:      podman logs -f %s\nService:   systemctl --user status %s.service\n' "$APP_NAME" "$APP_NAME"
-  printf 'Nginx:     %s\nSQLite:    Podman volume %s\nSecrets:   %s\n' "$SITE_FILE" "$VOLUME_NAME" "$ENV_FILE"
+  printf 'Nginx:     %s\nSQLite:    %s\nSecrets:   %s\n' "$SITE_FILE" "$HOST_DATA_DIR" "$ENV_FILE"
   printf '\nGoogle Cloud OAuth redirect URIs:\n  https://%s/auth/google/callback\n  https://%s/auth/drive/callback\n' "$DOMAIN" "$DOMAIN"
 }
 
