@@ -19,16 +19,19 @@ The Quadlet uses `UserNS=keep-id`, plus the current user's UID and GID, to write
 
 During deployment the script prepares the host data directory before starting the container. It does not modify Nginx or Let's Encrypt behavior.
 
-## Upgrade from the old named Podman volume
+## New installation without migration
 
-If `nicolabz-identity-data` exists, the updated installation script attempts a one-time migration **before** switching the Quadlet mount. It stops the old application first so SQLite is not written during the copy.
+The install script **does not inspect, migrate, or delete** the older named Podman volume `nicolabz-identity-data`. It creates `/var/volumes/nicolabz-identity` if needed, and mounts that directory directly into `/app/data`. SQLite creates its database there at first startup.
 
-- The host directory must be **empty** before migration, otherwise the deployment aborts rather than overwriting data.
-- The old Podman named volume is deliberately **preserved** for rollback; after verifying the application you can remove it manually if no longer needed.
-- If migration fails, the original volume remains intact. Inspect the target and restore or clear partial copied files **only after backing them up**, before retrying.
-- Back up the SQLite database before any migration, and do not perform these operations while another instance writes to it.
+The old volume, even if it exists, remains untouched. Once you have confirmed it is unused, you may remove it manually if you wish:
 
-Verify:
+```bash
+podman volume inspect nicolabz-identity-data
+# Optional, only after confirming the volume has no needed data:
+podman volume rm nicolabz-identity-data
+```
+
+Verify the bind mount:
 
 ```bash
 ls -lah /var/volumes/nicolabz-identity
@@ -36,17 +39,13 @@ podman inspect nicolabz-identity --format '{{json .Mounts}}'
 curl -fsS http://127.0.0.1:3000/health
 ```
 
-If needed, inspect the old volume:
-
-```bash
-podman volume inspect nicolabz-identity-data
-```
+If an old standalone container named `nicolabz-identity` exists, the new installer stops with an error rather than deleting it automatically. Inspect its storage, then remove it manually if appropriate.
 
 ## Redeploy and cleanup
 
 `./ops/redeploy-app.sh` continues to work unchanged and preserves the data directory.
 
-The updated `./ops/clean-vps.sh` preserves `/var/volumes/nicolabz-identity` during normal uninstall. With `--purge`, it removes that directory and any old named volume, after explicit confirmation. Both operations are irreversible. Back up your SQLite data before using `--purge`.
+The updated `./ops/clean-vps.sh` preserves `/var/volumes/nicolabz-identity` during normal uninstall. With `--purge`, it removes that directory after explicit confirmation. The old named volume is never deleted automatically. Both operations are irreversible. Back up your SQLite data before using `--purge`.
 
 ## Security
 

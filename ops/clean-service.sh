@@ -8,7 +8,6 @@ set -Eeuo pipefail
 readonly APP_NAME='nicolabz-identity'
 readonly SERVICE_NAME="${APP_NAME}.service"
 readonly IMAGE_NAME='localhost/nicolabz-identity:latest'
-readonly VOLUME_NAME='nicolabz-identity-data' # Legacy volume (also removed on purge).
 readonly HOST_DATA_DIR='/var/volumes/nicolabz-identity'
 readonly QUADLET_FILE="${HOME}/.config/containers/systemd/${APP_NAME}.container"
 readonly ENV_DIR="${HOME}/.config/nicolabz-identity"
@@ -35,12 +34,11 @@ Usage: ./ops/clean-vps.sh [--dry-run] [--purge] [--domain auth.example.com]
 
 By default, removes ONLY this app's Quadlet service, Podman container/image,
 managed Nginx configuration, and app-specific Certbot reload hook.
-SQLite host data, legacy volume, Google credentials and Let's Encrypt certificate are preserved.
+SQLite host data, Google credentials and Let's Encrypt certificate are preserved.
 
 --dry-run          Display removal plan without changing anything.
 --purge            ALSO permanently delete /var/volumes/nicolabz-identity,
-                   the legacy Podman volume, credentials, and (when exclusively
-                   owned) the Let's Encrypt certificate.
+                   credentials, and (when exclusively owned) the Let's Encrypt certificate.
 --domain NAME      Domain for certificate deletion; otherwise read identity.env.
 -h, --help         Show this help.
 
@@ -100,12 +98,11 @@ EOF
   if [[ "$PURGE" == true ]]; then
     cat <<EOF
   - SQLite:     $HOST_DATA_DIR [PERMANENT DELETION]
-  - Legacy:     Podman volume $VOLUME_NAME [PERMANENT DELETION]
   - Secrets:    $ENV_FILE [PERMANENT DELETION]
   - Certificate: $DOMAIN (only if no other service depends on it)
 EOF
   else
-    printf '  - Preserved:  SQLite data directory and legacy volume, secrets, and Lets Encrypt certificate\n'
+    printf '  - Preserved:  SQLite data directory, secrets, and Lets Encrypt certificate\n'
   fi
   printf '  - Preserved:  Nginx/Podman/Certbot packages, other apps, project files\n'
 }
@@ -279,10 +276,6 @@ purge_private_data() {
     fi
     info "Permanently deleting application data in $HOST_DATA_DIR..."
     rm -rf --one-file-system -- "$HOST_DATA_DIR"
-  fi
-  if podman volume exists "$VOLUME_NAME"; then
-    info 'Permanently deleting old named SQLite volume...'
-    podman volume rm "$VOLUME_NAME" || fail 'Volume still in use; refusing to force-delete it.'
   fi
   if [[ -f "$ENV_FILE" ]]; then
     info 'Deleting Google credentials and app configuration...'
