@@ -13,7 +13,8 @@ readonly HOST_DATA_DIR="/var/volumes/nicolabz-identity"
 readonly ENV_FILE="${HOME}/.config/nicolabz-identity/identity.env"
 readonly QUADLET_FILE="${HOME}/.config/containers/systemd/nicolabz-identity.container"
 readonly WEBROOT="/var/www/letsencrypt"
-readonly PORT=3000
+readonly HOST_PORT=3001
+readonly CONTAINER_PORT=3000
 
 DOMAIN=""
 EMAIL=""
@@ -201,7 +202,7 @@ write_environment() {
   [[ -f "$ENV_FILE" ]] && source_file="$ENV_FILE"
   updated_keys[NODE_ENV]=production
   updated_keys[HOST]=0.0.0.0
-  updated_keys[PORT]="$PORT"
+  updated_keys[PORT]="$CONTAINER_PORT"
   updated_keys[PUBLIC_BASE_URL]="https://$DOMAIN"
   updated_keys[DATABASE_PATH]=/app/data/identity.sqlite
   updated_keys[GOOGLE_CLIENT_ID]="$client_id"
@@ -261,7 +262,7 @@ configure_environment() {
 validate_environment() {
   [[ "$(read_env_value NODE_ENV)" == production ]] || fail 'Set NODE_ENV=production in identity.env.'
   [[ "$(read_env_value HOST)" == 0.0.0.0 ]] || fail 'Set HOST=0.0.0.0 in identity.env.'
-  [[ "$(read_env_value PORT)" == "$PORT" ]] || fail "Set PORT=$PORT in identity.env."
+  [[ "$(read_env_value PORT)" == "$CONTAINER_PORT" ]] || fail "Set PORT=$CONTAINER_PORT in identity.env."
   [[ "$(read_env_value DATABASE_PATH)" == /app/data/identity.sqlite ]] || fail 'DATABASE_PATH must be /app/data/identity.sqlite.'
   [[ "$(read_env_value PUBLIC_BASE_URL)" == "https://$DOMAIN" ]] || fail "PUBLIC_BASE_URL must be https://$DOMAIN."
   local key value
@@ -355,7 +356,7 @@ Description=Nicolabz Identity API (rootless Podman)
 Image=$IMAGE_NAME
 ContainerName=$APP_NAME
 EnvironmentFile=$ENV_FILE
-PublishPort=127.0.0.1:$PORT:$PORT
+PublishPort=127.0.0.1:$HOST_PORT:$CONTAINER_PORT
 # Keep the running UID/GID equal to the host SSH user, so files remain accessible.
 UserNS=keep-id
 User=$(id -u)
@@ -390,14 +391,14 @@ QUADLET
 check_local_health() {
   local attempt
   for attempt in {1..12}; do
-    if curl --silent --show-error --fail --max-time 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
+    if curl --silent --show-error --fail --max-time 2 "http://127.0.0.1:$HOST_PORT/health" >/dev/null 2>&1; then
       info 'Local API health check passed.'
       return 0
     fi
     sleep 1
   done
   systemctl --user --no-pager status "$APP_NAME.service" || true
-  fail "The API did not respond at 127.0.0.1:$PORT/health. See: podman logs $APP_NAME"
+  fail "The API did not respond at 127.0.0.1:$HOST_PORT/health. See: podman logs $APP_NAME"
 }
 
 choose_nginx_location() {
@@ -476,7 +477,7 @@ server {
     add_header X-Content-Type-Options nosniff always;
 
     location / {
-        proxy_pass http://127.0.0.1:3000;
+        proxy_pass http://127.0.0.1:3001;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;

@@ -36,7 +36,7 @@ Verify the bind mount:
 ```bash
 ls -lah /var/volumes/nicolabz-identity
 podman inspect nicolabz-identity --format '{{json .Mounts}}'
-curl -fsS http://127.0.0.1:3000/health
+curl -fsS http://127.0.0.1:3001/health
 ```
 
 If an old standalone container named `nicolabz-identity` exists, the new installer stops with an error rather than deleting it automatically. Inspect its storage, then remove it manually if appropriate.

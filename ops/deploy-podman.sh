@@ -35,7 +35,7 @@ podman run -d --replace \
   --name nicolabz-identity \
   --restart=unless-stopped \
   --env-file "$ENV_FILE" \
-  --publish 127.0.0.1:3000:3000 \
+  --publish 127.0.0.1:3001:3000 \
   --userns keep-id \
   --user "$(id -u):$(id -g)" \
   --volume "$HOST_DATA_DIR:/app/data:Z" \
