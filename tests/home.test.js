@@ -27,7 +27,11 @@ test('La page accueil est servie par Node et présente le service sans script in
   assert.match(page.headers['content-type'], /^text\/html/);
   const html = page.body.toString('utf8');
   assert.match(html, /Nicolabz Identity/);
-  assert.match(html, /Utilisateurs uniques/);
+  assert.match(html, /data-theme="light"/);
+  assert.match(html, /data-theme-toggle/);
+  assert.match(html, /\/theme\/theme\.css/);
+  assert.match(html, /\/theme\/theme\.js/);
+  assert.match(html, /UTILISATEURS UNIQUES/i);
   assert.match(html, /href="\/demo"/);
   assert.match(html, /src="\/home\/home\.js"/);
   assert.match(html, /href="\/home\/home\.css"/);

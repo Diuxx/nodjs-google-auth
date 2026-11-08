@@ -6,10 +6,11 @@ import { AppError, requireCondition } from '../lib/errors.js';
 import { requireAppOrigin } from '../lib/client-apps.js';
 import { registerDemoRoutes } from './demo/routes.js';
 import { registerHomeRoutes } from './home/routes.js';
+import { registerThemeRoutes } from './theme/routes.js';
 import { registerDemoTextRoutes } from './demo/text-routes.js';
 import { cookieSettings, setSessionCookie, clearSessionCookie, setFlowCookie, clearFlowCookie } from './cookies.js';
 
-export async function createApp({ config, repo, auth, google, sync, drive, database }) {
+export async function createApp({ config, repo, auth, google, sync, drive, files, database }) {
   const app = Fastify({
     logger: { redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers.set-cookie'] },
     disableRequestLogging: true, // Évite de journaliser les codes OAuth dans les URLs de callback.
@@ -21,7 +22,7 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
   await app.register(cors, {
     credentials: true,
     origin: (origin, done) => done(null, origin && config.clientApps.origins.has(origin) ? origin : false),
-    methods: ['GET', 'PUT', 'POST', 'OPTIONS'],
+    methods: ['GET', 'PUT', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type']
   });
   await app.register(helmet, { referrerPolicy: { policy: 'no-referrer' } });
@@ -67,6 +68,16 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
     return user;
   }
 
+  function validateJsonFilename(filename) {
+    const MAX_LENGTH = 120;
+    const validName = typeof filename === 'string' && filename.length > 0 && filename.length <= MAX_LENGTH &&
+      /^[\p{L}\p{N}][\p{L}\p{N} ._()-]*\.json$/iu.test(filename) &&
+      !filename.includes('..');
+    requireCondition(validName, 400, 'INVALID_FILENAME',
+      'Nom de fichier JSON invalide. Utilise un nom simple terminé par .json (120 caractères maximum).');
+    return filename;
+  }
+
   function beginFlow(type, request, reply) {
     const user = type === 'drive' ? requireUser(request) : null;
     const { browserToken, redirectUrl } = auth.start(type, request.query.app, request.query.return_to, user);
@@ -89,6 +100,7 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
     return reply.redirect(result.returnUrl);
   }
 
+  registerThemeRoutes(app);
   registerHomeRoutes(app, { repo, registeredApplications: config.clientApps.apps.size - 1 });
   registerDemoRoutes(app, config.publicBaseUrl);
   registerDemoTextRoutes(app, { config, drive, requireUser });
@@ -146,6 +158,140 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
   }, async request => {
     const user = requireSyncAccess(request);
     return sync.put(user.id, request.params.appId, request.body.version, request.body.data);
+  });
+
+  app.get('/api/files/:appId', {
+    schema: {
+      querystring: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          pageSize: { type: 'integer', minimum: 1, maximum: 100 },
+          pageToken: { type: 'string' }
+        }
+      }
+    }
+  }, async request => {
+    const user = requireSyncAccess(request);
+    const { pageSize, pageToken } = request.query;
+    return files.list(user.id, request.params.appId, { pageSize, pageToken });
+  });
+
+  app.post('/api/files/:appId', {
+    schema: {
+      body: {
+        type: 'object',
+        required: ['filename', 'data'],
+        additionalProperties: false,
+        properties: {
+          filename: { type: 'string', minLength: 5, maxLength: 120 },
+          data: { anyOf: [{ type: 'object' }, { type: 'array' }] }
+        }
+      }
+    }
+  }, async (request, reply) => {
+    const user = requireSyncAccess(request);
+    const filename = validateJsonFilename(request.body.filename);
+    const result = await files.create(user.id, request.params.appId, filename, request.body.data);
+    return reply.code(201).send(result);
+  });
+
+  app.get('/api/files/:appId/:fileId', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['appId', 'fileId'],
+        properties: {
+          appId: { type: 'string', minLength: 1 },
+          fileId: { type: 'string', minLength: 3, maxLength: 200 }
+        },
+        additionalProperties: false
+      }
+    }
+  }, async request => {
+    const user = requireSyncAccess(request);
+    return files.get(user.id, request.params.appId, request.params.fileId);
+  });
+
+  app.put('/api/files/:appId/:fileId', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['appId', 'fileId'],
+        properties: {
+          appId: { type: 'string', minLength: 1 },
+          fileId: { type: 'string', minLength: 3, maxLength: 200 }
+        },
+        additionalProperties: false
+      },
+      body: {
+        type: 'object',
+        required: ['version', 'data'],
+        additionalProperties: false,
+        properties: {
+          version: { type: 'integer', minimum: 0 },
+          data: { anyOf: [{ type: 'object' }, { type: 'array' }] }
+        }
+      }
+    }
+  }, async request => {
+    const user = requireSyncAccess(request);
+    return files.update(user.id, request.params.appId, request.params.fileId,
+      request.body.version, request.body.data);
+  });
+
+  app.patch('/api/files/:appId/:fileId', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['appId', 'fileId'],
+        properties: {
+          appId: { type: 'string', minLength: 1 },
+          fileId: { type: 'string', minLength: 3, maxLength: 200 }
+        },
+        additionalProperties: false
+      },
+      body: {
+        type: 'object',
+        required: ['version', 'filename'],
+        additionalProperties: false,
+        properties: {
+          version: { type: 'integer', minimum: 0 },
+          filename: { type: 'string', minLength: 5, maxLength: 120 }
+        }
+      }
+    }
+  }, async request => {
+    const user = requireSyncAccess(request);
+    const filename = validateJsonFilename(request.body.filename);
+    return files.rename(user.id, request.params.appId, request.params.fileId,
+      request.body.version, filename);
+  });
+
+  app.delete('/api/files/:appId/:fileId', {
+    schema: {
+      params: {
+        type: 'object',
+        required: ['appId', 'fileId'],
+        properties: {
+          appId: { type: 'string', minLength: 1 },
+          fileId: { type: 'string', minLength: 3, maxLength: 200 }
+        },
+        additionalProperties: false
+      },
+      querystring: {
+        type: 'object',
+        required: ['version'],
+        additionalProperties: false,
+        properties: {
+          version: { type: 'integer', minimum: 0 }
+        }
+      }
+    }
+  }, async request => {
+    const user = requireSyncAccess(request);
+    const version = Number(request.query.version);
+    return files.delete(user.id, request.params.appId, request.params.fileId, version);
   });
 
   return app;

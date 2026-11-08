@@ -1,0 +1,57 @@
+/* Shared semantic tokens. Import this file before any application components. */
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --color-background: #fafaf8;
+  --color-surface: #ffffff;
+  --color-surface-muted: #f2f3f0;
+  --color-text: #17191c;
+  --color-text-secondary: #656b6b;
+  --color-border: #e2e5e1;
+  --color-accent: #455e50;
+  --color-accent-contrast: #ffffff;
+  --color-button: #17191c;
+  --color-button-text: #ffffff;
+  --color-success: #3e7855;
+  --color-success-surface: #eaf3ea;
+  --color-focus: #477bba;
+  --color-art-lavender: #d7c7f5;
+  --color-art-blue: #b9dde8;
+  --color-art-peach: #f1cdbe;
+  --color-art-mint: #c7e5d2;
+  --art-opacity: 0.87;
+  --art-blur: 3px;
+  --radius-sm: 8px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-background: #111513;
+  --color-surface: #1a201c;
+  --color-surface-muted: #242c27;
+  --color-text: #edf1ed;
+  --color-text-secondary: #a0aba2;
+  --color-border: #343e37;
+  --color-accent: #a5bda9;
+  --color-accent-contrast: #111513;
+  --color-button: #a5bda9;
+  --color-button-text: #111513;
+  --color-success: #a5bda9;
+  --color-success-surface: #26372c;
+  --color-focus: #a4c8ff;
+  --color-art-lavender: #526052;
+  --color-art-blue: #405c57;
+  --color-art-peach: #5a5f4c;
+  --color-art-mint: #4b6654;
+  --art-opacity: 0.17;
+  --art-blur: 18px;
+}

@@ -1,22 +1,32 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#FAFAF8">
   <meta name="description" content="Démo de connexion Google et création de fichiers texte dans Drive.">
   <title>Connexion Google · Nicolabz Identity</title>
+  <link rel="stylesheet" href="/theme/theme.css">
   <link rel="stylesheet" href="/demo/demo.css">
+  <script src="/theme/theme.js" defer></script>
   <script src="/demo/demo.js" type="module"></script>
 </head>
 <body>
   <main class="layout">
+    <div class="spectrum-art" aria-hidden="true"><div class="spectrum-art__shape"></div></div>
     <header class="topbar">
       <a class="brand" href="/" aria-label="Nicolabz Identity – accueil">
         <span class="brand-symbol" aria-hidden="true">N</span>
         <span>nicolabz<span class="brand-muted">.identity</span></span>
       </a>
-      <a class="tag" href="/">RETOUR À L’ACCUEIL</a>
+      <div class="header-actions">
+        <a class="tag" href="/">RETOUR À L’ACCUEIL</a>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Activer le thème sombre" aria-pressed="false">
+          <span data-theme-icon aria-hidden="true">☾</span>
+          <span data-theme-label>Mode sombre</span>
+        </button>
+      </div>
     </header>
 
     <section class="card" aria-labelledby="demo-title">

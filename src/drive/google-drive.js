@@ -3,6 +3,7 @@ import { AppError } from '../lib/errors.js';
 
 const API_URL = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files';
+const MULTI_JSON_KIND = 'multi-json';
 
 function driveError(status) {
   if (status === 401 || status === 403) {
@@ -56,7 +57,7 @@ export function createGoogleDrive({ config, repo, google, http = fetch }) {
       `--${boundary}--\r\n`
     ].join('');
     const response = await request(userId, 'POST',
-      `${UPLOAD_URL}?uploadType=multipart&fields=id,name,webViewLink`, {
+      `${UPLOAD_URL}?uploadType=multipart&fields=id,name,appProperties,modifiedTime,webViewLink`, {
         body: multipart, contentType: `multipart/related; boundary=${boundary}`
       });
     const created = await response.json();
@@ -142,5 +143,199 @@ export function createGoogleDrive({ config, repo, google, http = fetch }) {
     };
   }
 
-  return { read, write, createTextFile };
+  function parseRevision(appProperties) {
+    if (!appProperties) return 0;
+    const raw = Number.parseInt(appProperties.revision ?? '0', 10);
+    if (!Number.isSafeInteger(raw) || raw < 0) return 0;
+    return raw;
+  }
+
+  async function listJsonFiles(userId, appId, { pageSize = 20, pageToken } = {}) {
+    const size = Number.isInteger(pageSize) && pageSize > 0 ? Math.min(pageSize, 100) : 20;
+    const q = [
+      "'appDataFolder' in parents",
+      "trashed = false",
+      "mimeType = 'application/json'",
+      `appProperties has { key='appId' and value='${appId.replace(/['\\]/g, '\\$&')}' }`,
+      `appProperties has { key='kind' and value='${MULTI_JSON_KIND}' }`
+    ].join(' and ');
+    const params = new URLSearchParams({
+      spaces: 'appDataFolder',
+      q,
+      fields: 'nextPageToken,files(id,name,appProperties,modifiedTime)',
+      pageSize: String(size)
+    });
+    if (pageToken) params.set('pageToken', pageToken);
+    const response = await request(userId, 'GET', `${API_URL}?${params}`);
+    const body = await response.json();
+    const files = (body.files ?? []).map(file => ({
+      id: file.id,
+      filename: file.name,
+      version: parseRevision(file.appProperties),
+      updatedAt: file.appProperties?.updatedAt ?? file.modifiedTime ?? null
+    }));
+    return { files, nextPageToken: body.nextPageToken ?? null };
+  }
+
+  async function findJsonFileByName(userId, appId, filename) {
+    const q = [
+      "'appDataFolder' in parents",
+      "trashed = false",
+      "mimeType = 'application/json'",
+      `name = '${filename.replace(/['\\]/g, '\\$&')}'`,
+      `appProperties has { key='appId' and value='${appId.replace(/['\\]/g, '\\$&')}' }`,
+      `appProperties has { key='kind' and value='${MULTI_JSON_KIND}' }`
+    ].join(' and ');
+    const params = new URLSearchParams({
+      spaces: 'appDataFolder',
+      q,
+      fields: 'files(id,name,appProperties,modifiedTime)',
+      pageSize: '10'
+    });
+    const response = await request(userId, 'GET', `${API_URL}?${params}`);
+    const body = await response.json();
+    if (body.files?.length > 1) {
+      throw new AppError(409, 'DUPLICATE_DRIVE_FILES', 'Plusieurs fichiers portent le même nom. Intervention nécessaire.');
+    }
+    const file = body.files?.[0];
+    if (!file) return null;
+    return {
+      id: file.id,
+      filename: file.name,
+      version: parseRevision(file.appProperties),
+      updatedAt: file.appProperties?.updatedAt ?? file.modifiedTime ?? null,
+      appProperties: file.appProperties ?? {}
+    };
+  }
+
+  async function getJsonFileMetadata(userId, appId, fileId) {
+    const params = new URLSearchParams({
+      fields: 'id,name,appProperties,modifiedTime,trashed'
+    });
+    const response = await request(userId, 'GET', `${API_URL}/${encodeURIComponent(fileId)}?${params}`);
+    if (response.status === 404) return null;
+    const file = await response.json();
+    if (file.trashed) return null;
+    const appProperties = file.appProperties ?? {};
+    if (appProperties.appId !== appId || appProperties.kind !== MULTI_JSON_KIND) return null;
+    return {
+      id: file.id,
+      filename: file.name,
+      version: parseRevision(appProperties),
+      updatedAt: appProperties.updatedAt ?? file.modifiedTime ?? null,
+      appProperties
+    };
+  }
+
+  async function getJsonFile(userId, appId, fileId) {
+    const meta = await getJsonFileMetadata(userId, appId, fileId);
+    if (!meta) return null;
+    const response = await request(userId, 'GET', `${API_URL}/${encodeURIComponent(fileId)}?alt=media`);
+    if (response.status === 404) return null;
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw new AppError(502, 'INVALID_DRIVE_DOCUMENT', 'Fichier Google Drive JSON invalide.');
+    }
+    if (data === null || typeof data !== 'object') {
+      throw new AppError(502, 'INVALID_DRIVE_DOCUMENT', 'Fichier Google Drive JSON invalide.');
+    }
+    return { ...meta, data };
+  }
+
+  async function createJsonFile(userId, appId, filename, version, updatedAt, data) {
+    const appProperties = { appId, kind: MULTI_JSON_KIND, revision: String(version), updatedAt };
+    const created = await createFile(userId,
+      { name: filename, mimeType: 'application/json', parents: ['appDataFolder'], appProperties },
+      JSON.stringify(data), 'application/json; charset=UTF-8');
+    return {
+      id: created.id,
+      filename: created.name || filename,
+      version,
+      updatedAt,
+      appProperties
+    };
+  }
+
+  async function updateJsonFile(userId, appId, fileId, version, updatedAt, data, currentAppProperties = {}) {
+    const appProperties = {
+      ...currentAppProperties,
+      appId,
+      kind: MULTI_JSON_KIND,
+      revision: String(version),
+      updatedAt
+    };
+    const boundary = `nicolabz-${randomBytes(12).toString('hex')}`;
+    const multipart = [
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ appProperties })}\r\n`,
+      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(data)}\r\n`,
+      `--${boundary}--\r\n`
+    ].join('');
+    const response = await request(userId, 'PATCH',
+      `${UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=multipart&fields=id,name,appProperties,modifiedTime`, {
+        body: multipart,
+        contentType: `multipart/related; boundary=${boundary}`
+      });
+    if (response.status === 404) return null;
+    const updated = await response.json();
+    if (!updated.id) throw new AppError(502, 'DRIVE_UPDATE_FAILED',
+      'Google Drive n’a pas confirmé la mise à jour du fichier.');
+    return {
+      id: updated.id,
+      filename: updated.name,
+      version,
+      updatedAt,
+      appProperties
+    };
+  }
+
+  async function renameJsonFile(userId, appId, fileId, filename, version, updatedAt, currentAppProperties = {}) {
+    const appProperties = {
+      ...currentAppProperties,
+      appId,
+      kind: MULTI_JSON_KIND,
+      revision: String(version),
+      updatedAt
+    };
+    const response = await request(userId, 'PATCH',
+      `${API_URL}/${encodeURIComponent(fileId)}?fields=id,name,appProperties,modifiedTime`, {
+        body: JSON.stringify({ name: filename, appProperties }),
+        contentType: 'application/json; charset=UTF-8'
+      });
+    if (response.status === 404) return null;
+    const updated = await response.json();
+    if (!updated.id) throw new AppError(502, 'DRIVE_UPDATE_FAILED',
+      'Google Drive n’a pas confirmé la mise à jour du fichier.');
+    return {
+      id: updated.id,
+      filename: updated.name,
+      version,
+      updatedAt,
+      appProperties
+    };
+  }
+
+  async function deleteJsonFile(userId, appId, fileId) {
+    const meta = await getJsonFileMetadata(userId, appId, fileId);
+    if (!meta) return false;
+    const response = await request(userId, 'DELETE', `${API_URL}/${encodeURIComponent(fileId)}`);
+    if (response.status === 404) return false;
+    if (!response.ok && response.status !== 204) throw driveError(response.status);
+    return true;
+  }
+
+  return {
+    read,
+    write,
+    createTextFile,
+    listJsonFiles,
+    findJsonFileByName,
+    getJsonFile,
+    getJsonFileMetadata,
+    createJsonFile,
+    updateJsonFile,
+    renameJsonFile,
+    deleteJsonFile
+  };
 }

@@ -125,6 +125,7 @@ npm test
 npm run dev
 ```
 
+- `npm run dev` ouvre un onglet sur `http://localhost:3000`, puis démarre le serveur en mode watch.
 - Accueil : http://localhost:3000/
 - Statut public et statistiques : http://localhost:3000/api/public/status
 - API : http://localhost:3000/health
@@ -332,6 +333,67 @@ Pour un nouvel outil, **déclarer un identifiant unique et son origine** dans `C
 | POST | `/api/drive/disconnect` | Révoque si possible et supprime le refresh token local, **sans supprimer les fichiers** |
 | GET | `/api/sync/:appId` | Lit le JSON du Drive de l'utilisateur |
 | PUT | `/api/sync/:appId` | Sauvegarde `{ "version": 0, "data": { ... } }` |
+
+### 6.1 Stockage multi-fichiers JSON
+
+En plus du document unique de synchronisation, chaque utilisateur peut gÃ©rer **plusieurs fichiers JSON par application** dans `appDataFolder`. Les fichiers sont identifiÃ©s par leur **ID Drive** (stable) et reliÃ©s Ã  l’application via les mÃ©tadonnÃ©es `appProperties` (pas de sous-dossiers physiques cÃ´tÃ© Drive).
+
+Nouvelles routes gÃ©nÃ©riques :
+
+| MÃ©thode | Route | Fonction |
+| --- | --- | --- |
+| GET | `/api/files/:appId` | Liste les fichiers d'une application (paginÃ©) |
+| POST | `/api/files/:appId` | CrÃ©e un nouveau fichier JSON |
+| GET | `/api/files/:appId/:fileId` | Lit un fichier JSON |
+| PUT | `/api/files/:appId/:fileId` | Remplace le contenu JSON |
+| PATCH | `/api/files/:appId/:fileId` | Renomme un fichier (versionnÃ©) |
+| DELETE | `/api/files/:appId/:fileId` | Supprime un fichier (versionnÃ©) |
+
+Exemple de mÃ©tadonnÃ©es renvoyÃ©es :
+
+```json
+{
+  "id": "drive-file-id",
+  "filename": "tasks.json",
+  "version": 3,
+  "updatedAt": "2026-11-08T12:00:00Z"
+}
+```
+
+Contrats de base cÃ´tÃ© serveur :
+
+- `POST /api/files/:appId`
+
+  ```json
+  {
+    "filename": "tasks.json",
+    "data": { "tasks": [] }
+  }
+  ```
+
+- `PUT /api/files/:appId/:fileId`
+
+  ```json
+  {
+    "version": 1,
+    "data": { "tasks": ["a", "b"] }
+  }
+  ```
+
+- `PATCH /api/files/:appId/:fileId`
+
+  ```json
+  {
+    "version": 2,
+    "filename": "archive-2026.json"
+  }
+  ```
+
+- `DELETE /api/files/:appId/:fileId?version=3`
+
+Le champ `version` est un **compteur entier** propre Ã  chaque fichier. Toute Ã©criture (PUT, PATCH, DELETE) doit envoyer la version attendue ; si la version distante diffÃ¨re, l’API renvoie **409 `FILE_CONFLICT`** sans Ã©craser le contenu plus rÃ©cent. Les renommages et suppressions sont eux aussi soumis Ã  ce contrÃ´le.
+
+Les fichiers sont stockÃ©s directement dans `appDataFolder`, sans hiÃ©rarchie Drive ; l’arborescence logique `todo/tasks.json`, `todo/projects.json` reste **conceptuelle**. Les noms peuvent Ãªtre modifiÃ©s sans changer l’ID Drive. Le contenu JSON reste libre (objet ou tableau en racine) : l’API ne valide pas de schÃ©ma mÃ©tier.
 
 Exemple de requête de la page de démonstration :
 

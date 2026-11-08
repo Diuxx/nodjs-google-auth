@@ -1,0 +1,51 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "name": "nicolabz-ui",
+  "version": "0.1.0",
+  "themes": {
+    "light": {
+      "background": "#FAFAF8",
+      "surface": "#FFFFFF",
+      "surfaceMuted": "#F2F3F0",
+      "text": "#17191C",
+      "textSecondary": "#656B6B",
+      "border": "#E2E5E1",
+      "accent": "#455E50",
+      "accentContrast": "#FFFFFF",
+      "button": "#17191C",
+      "buttonText": "#FFFFFF",
+      "success": "#3E7855",
+      "successSurface": "#EAF3EA",
+      "focus": "#477BBA",
+      "art": {
+        "lavender": "#D7C7F5",
+        "blue": "#B9DDE8",
+        "peach": "#F1CDBE",
+        "mint": "#C7E5D2"
+      }
+    },
+    "dark": {
+      "background": "#111513",
+      "surface": "#1A201C",
+      "surfaceMuted": "#242C27",
+      "text": "#EDF1ED",
+      "textSecondary": "#A0ABA2",
+      "border": "#343E37",
+      "accent": "#A5BDA9",
+      "accentContrast": "#111513",
+      "button": "#A5BDA9",
+      "buttonText": "#111513",
+      "success": "#A5BDA9",
+      "successSurface": "#26372C",
+      "focus": "#A4C8FF",
+      "art": {
+        "lavender": "#526052",
+        "blue": "#405C57",
+        "peach": "#5A5F4C",
+        "mint": "#4B6654"
+      }
+    }
+  },
+  "radii": { "sm": "8px", "md": "14px", "lg": "20px" },
+  "spacing": { "1": "4px", "2": "8px", "3": "12px", "4": "16px", "6": "24px", "8": "32px", "12": "48px", "16": "64px" }
+}

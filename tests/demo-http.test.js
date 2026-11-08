@@ -24,8 +24,17 @@ function fixture({ user = null, drive = {} } = {}) {
       return { browserToken: 'test-token', redirectUrl: 'https://accounts.google.com/o/oauth2/v2/auth' };
     }
   };
+  const files = {
+    list: async () => ({ files: [], nextPageToken: null }),
+    create: async () => { throw new Error('not implemented'); },
+    get: async () => { throw new Error('not implemented'); },
+    update: async () => { throw new Error('not implemented'); },
+    rename: async () => { throw new Error('not implemented'); },
+    delete: async () => { throw new Error('not implemented'); }
+  };
+
   return createApp({
-    config, repo, auth, google: {}, sync: {}, drive,
+    config, repo, auth, google: {}, sync: {}, drive, files,
     database: { prepare: () => ({ get: () => ({ 1: 1 }) }) }
   });
 }
@@ -38,12 +47,18 @@ test('HTTP /demo : HTML, JS, CSS, session anonyme et début OAuth', async t => {
   assert.equal(page.statusCode, 200);
   assert.match(page.headers['content-type'], /^text\/html/);
   assert.match(page.body, /Continuer avec Google/);
+  assert.match(page.body, /data-theme="light"/);
+  assert.match(page.body, /data-theme-toggle/);
+  assert.match(page.body, /\/theme\/theme\.css/);
+  assert.match(page.body, /\/theme\/theme\.js/);
   assert.equal(page.headers['cache-control'], 'no-store');
   assert.match(page.headers['content-security-policy'], /script-src 'self'/);
 
   for (const [route, type] of [
     ['/demo/demo.js', 'text/javascript'],
-    ['/demo/demo.css', 'text/css']
+    ['/demo/demo.css', 'text/css'],
+    ['/theme/theme.js', 'text/javascript'],
+    ['/theme/theme.css', 'text/css']
   ]) {
     const asset = await app.inject({ method: 'GET', url: route });
     assert.equal(asset.statusCode, 200);
@@ -140,7 +155,7 @@ test('HTTP / : accueil et statut public provenant de SQLite', async t => {
   const page = await app.inject({ method: 'GET', url: '/' });
   assert.equal(page.statusCode, 200);
   assert.match(page.headers['content-type'], /^text\/html/);
-  assert.match(page.body, /Utilisateurs uniques/);
+  assert.match(page.body, /UTILISATEURS UNIQUES/i);
   assert.match(page.headers['content-security-policy'], /script-src 'self'/);
 
   for (const route of ['/home/home.css', '/home/home.js']) {

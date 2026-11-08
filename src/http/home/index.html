@@ -1,16 +1,20 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#FAFAF8">
   <meta name="description" content="Nicolabz Identity : tableau de bord du service d'authentification Google et de synchronisation Drive.">
   <title>Nicolabz Identity · Vue d'ensemble</title>
+  <link rel="stylesheet" href="/theme/theme.css">
   <link rel="stylesheet" href="/home/home.css">
+  <script src="/theme/theme.js" defer></script>
   <script src="/home/home.js" type="module"></script>
 </head>
 <body>
   <div class="shell">
+    <div class="spectrum-art" aria-hidden="true"><div class="spectrum-art__shape"></div></div>
     <header class="topbar">
       <a class="brand" href="/" aria-label="Nicolabz Identity, accueil">
         <span class="brand-mark" aria-hidden="true">N</span>
@@ -19,6 +23,10 @@
       <div class="header-right">
         <span class="version">SERVICE HUB <span aria-hidden="true">/</span> v0.1</span>
         <a class="nav-link" href="/demo">Démo OAuth <span aria-hidden="true">↗</span></a>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Activer le thème sombre" aria-pressed="false">
+          <span data-theme-icon aria-hidden="true">☾</span>
+          <span data-theme-label>Mode sombre</span>
+        </button>
       </div>
     </header>
 
