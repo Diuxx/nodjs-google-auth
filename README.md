@@ -7,7 +7,7 @@
 - **Synchronisation** : chaque utilisateur sauvegarde un JSON par application dans **son propre Google Drive**, dans l'espace privé `appDataFolder`.
 - **Stockage local du serveur** : SQLite (identités, sessions, états OAuth temporaires, jetons Drive chiffrés, index de fichiers).
 - **Exploitation** : une instance Node.js derrière Nginx, Podman, volume persistant, limites de taille, gestion des conflits par version.
-- **Accueil intégré** : `/` présente le service, son état local et les compteurs anonymisés provenant de SQLite.
+- **Accueil intégré** : `/` présente le service, son état local, les compteurs anonymisés et les applications autorisées.
 - **Page de test intégrée** : `/demo`, connexion Google, consentement Drive et création d’un vrai fichier `.txt` dans « Mon Drive », sans serveur frontend supplémentaire.
 
 > **Portée importante** : ceci est une **API centralisée avec Google comme fournisseur OpenID Connect**, et **non un fournisseur OIDC universel**. Les clients sont des applications web s'exécutant dans le navigateur, sur les origines explicitement autorisées. Pour connecter des outils tiers exigeant une découverte OIDC (`/.well-known/openid-configuration`), il faudra ajouter un véritable serveur OIDC (ex. `oidc-provider`) ou déployer Authentik. Les cookies de session ne sont jamais partagés entre les applications : chaque application interroge l'API centrale.
@@ -38,7 +38,9 @@ Les valeurs ci-dessus sont **illustratives**. Les chiffres réellement affichés
 - **Comptes Drive connectés** : nombre de lignes `drive_credentials`. Cela signifie qu’un refresh token est sauvegardé, **pas** qu’il est encore valide chez Google.
 - **Applications configurées** : applications déclarées dans `CLIENT_APPS_JSON`, hors client interne `demo`.
 
-Le statut **« API opérationnelle »** confirme la réponse HTTP et une requête SQLite réussie. Il ne teste **ni le service OAuth de Google ni Google Drive**, et ne garantit donc pas leur disponibilité. En cas d’échec du statut, la page affiche « Statut indisponible », sans inventer des chiffres. Les compteurs sont publics et agrégés : **aucun e-mail, nom, identifiant Google ou jeton n’est transmis**. Comme ces valeurs sont visibles par tout visiteur, protège le service par un reverse proxy si tu souhaites garder même les totaux privés. Le bouton **Actualiser** relance la lecture ; aucune mise à jour automatique en arrière-plan.
+Le statut **« API opérationnelle »** confirme la réponse HTTP et une requête SQLite réussie. Il ne teste **ni le service OAuth de Google ni Google Drive**, et ne garantit donc pas leur disponibilité. En cas d’échec du statut, la page affiche « Statut indisponible », sans inventer des chiffres. Les compteurs sont publics et agrégés : **aucun e-mail, nom, identifiant Google ou jeton n’est transmis**.
+
+La page liste aussi les identifiants des applications déclarées dans `CLIENT_APPS_JSON` et leurs origines autorisées, via **`GET /api/public/applications`**. La démo interne est exclue, comme pour le compteur. Cette liste est accessible sans authentification et ne contient ni identifiants utilisateur ni secrets. Les origines sont visibles par tout visiteur : protège le service par un reverse proxy si tu souhaites garder ces informations ou les totaux privés. Le bouton **Actualiser** recharge les statistiques et la liste ; aucune mise à jour automatique en arrière-plan.
 
 Aucune migration SQLite, nouvelle dépendance ou variable d’environnement n’est nécessaire : la page utilise les tables existantes.
 

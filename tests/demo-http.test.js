@@ -10,7 +10,7 @@ function fixture({ user = null, drive = {} } = {}) {
     GOOGLE_CLIENT_ID: 'id.apps.googleusercontent.com',
     GOOGLE_CLIENT_SECRET: 'test-secret',
     TOKEN_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
-    CLIENT_APPS_JSON: '[{"id":"todo","origins":["https://todo.nicolabz.dev"]}]'
+    CLIENT_APPS_JSON: '[{"id":"todo","origins":["https://todo.nicolabz.dev","https://todo-alt.nicolabz.dev"]}]'
   });
   const repo = {
     sessions: { find: token => token === 'demo-session' ? user : null, remove: () => {} },
@@ -169,4 +169,11 @@ test('HTTP / : accueil et statut public provenant de SQLite', async t => {
     statistics: { totalUsers: 6, activeUsers: 2, connectedDrives: 3, registeredApplications: 1 }
   });
   assert.equal(status.headers['cache-control'], 'no-store');
+
+  const applications = await app.inject({ method: 'GET', url: '/api/public/applications' });
+  assert.equal(applications.statusCode, 200);
+  assert.equal(applications.headers['cache-control'], 'no-store');
+  assert.deepEqual(applications.json(), {
+    applications: [{ id: 'todo', origins: ['https://todo.nicolabz.dev', 'https://todo-alt.nicolabz.dev'] }]
+  });
 });

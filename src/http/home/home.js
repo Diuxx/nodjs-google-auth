@@ -6,6 +6,8 @@ const ui = {
   activeUsers: document.querySelector('#active-users'),
   connectedDrives: document.querySelector('#connected-drives'),
   registeredApps: document.querySelector('#registered-apps'),
+  applicationsStatus: document.querySelector('#applications-status'),
+  applicationsList: document.querySelector('#applications-list'),
   lastCheck: document.querySelector('#last-check'),
   refresh: document.querySelector('#refresh')
 };
@@ -42,8 +44,46 @@ function displayStatistics(statistics) {
   });
 }
 
+async function refreshApplications() {
+  ui.applicationsStatus.textContent = 'Chargement des applications…';
+  ui.applicationsList.replaceChildren();
+
+  try {
+    const response = await fetch('/api/public/applications', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = await response.json();
+    if (!Array.isArray(result.applications) || !result.applications.every(application =>
+      application && typeof application.id === 'string' &&
+      Array.isArray(application.origins) && application.origins.length > 0 &&
+      application.origins.every(origin => typeof origin === 'string'))) {
+      throw new Error('Liste des applications invalide');
+    }
+
+    for (const application of result.applications) {
+      const row = document.createElement('li');
+      row.className = 'application-row';
+      const id = document.createElement('strong');
+      id.className = 'application-id';
+      id.textContent = application.id;
+      const origins = document.createElement('ul');
+      origins.className = 'application-origins';
+      origins.setAttribute('aria-label', `Origines autorisées pour ${application.id}`);
+      for (const origin of application.origins) {
+        const item = document.createElement('li');
+        item.textContent = origin;
+        origins.append(item);
+      }
+      row.append(id, origins);
+      ui.applicationsList.append(row);
+    }
+    ui.applicationsStatus.textContent = result.applications.length ? '' : 'Aucune application configurée.';
+  } catch {
+    ui.applicationsList.replaceChildren();
+    ui.applicationsStatus.textContent = 'Impossible de charger les applications autorisées.';
+  }
+}
+
 async function refreshOverview() {
-  ui.refresh.disabled = true;
   showStatus('loading', 'Contrôle de l’API et de SQLite');
 
   try {
@@ -62,9 +102,17 @@ async function refreshOverview() {
     showStatus('error', 'Impossible de vérifier le service local');
   } finally {
     ui.lastCheck.textContent = timeFormatter.format(new Date());
+  }
+}
+
+async function refreshPage() {
+  ui.refresh.disabled = true;
+  try {
+    await Promise.all([refreshOverview(), refreshApplications()]);
+  } finally {
     ui.refresh.disabled = false;
   }
 }
 
-ui.refresh.addEventListener('click', refreshOverview);
-refreshOverview();
+ui.refresh.addEventListener('click', refreshPage);
+refreshPage();

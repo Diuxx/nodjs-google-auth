@@ -7,7 +7,12 @@ function registerRoutes(overrides = {}) {
   const routes = new Map();
   const app = { get(path, handler) { routes.set(path, handler); } };
   const repo = { statistics: { overview: () => ({ totalUsers: 12, activeUsers: 3, connectedDrives: 4 }) } };
-  registerHomeRoutes(app, { repo: overrides.repo ?? repo, registeredApplications: 2 });
+  const clientApps = { apps: new Map([
+    ['todo', new Set(['https://todo.example', 'https://todo-alt.example'])],
+    ['budget', new Set(['https://budget.example'])],
+    ['demo', new Set(['https://api.example'])]
+  ]) };
+  registerHomeRoutes(app, { repo: overrides.repo ?? repo, clientApps: overrides.clientApps ?? clientApps });
   return routes;
 }
 
@@ -32,6 +37,8 @@ test('La page accueil est servie par Node et présente le service sans script in
   assert.match(html, /\/theme\/theme\.css/);
   assert.match(html, /\/theme\/theme\.js/);
   assert.match(html, /UTILISATEURS UNIQUES/i);
+  assert.match(html, /Applications autorisées/);
+  assert.match(html, /id="applications-list"/);
   assert.match(html, /href="\/demo"/);
   assert.match(html, /src="\/home\/home\.js"/);
   assert.match(html, /href="\/home\/home\.css"/);
@@ -42,6 +49,26 @@ test('La page accueil est servie par Node et présente le service sans script in
     assert.match(asset.headers['content-type'], new RegExp(`^${expectedType}`));
     assert.ok(asset.body.length > 0);
   }
+});
+
+test('La liste publique contient les identifiants et toutes leurs origines, sans la démo', async () => {
+  const routes = registerRoutes({
+    repo: { statistics: { overview: () => { throw new Error('SQLite indisponible'); } } }
+  });
+  const response = await routes.get('/api/public/applications')({}, reply());
+  assert.equal(response.headers['cache-control'], 'no-store');
+  assert.deepEqual(response.body, {
+    applications: [
+      { id: 'todo', origins: ['https://todo.example', 'https://todo-alt.example'] },
+      { id: 'budget', origins: ['https://budget.example'] }
+    ]
+  });
+});
+
+test('La liste publique peut être vide lorsqu’il ne reste que la démo', async () => {
+  const clientApps = { apps: new Map([['demo', new Set(['https://api.example'])]]) };
+  const response = await registerRoutes({ clientApps }).get('/api/public/applications')({}, reply());
+  assert.deepEqual(response.body, { applications: [] });
 });
 
 test('Le statut public ne contient que les compteurs agrégés et une santé locale', async () => {

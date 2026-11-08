@@ -45,7 +45,7 @@
         <aside class="health-panel" aria-labelledby="health-title">
           <div class="panel-heading">
             <span id="health-title" class="micro-label">ÉTAT DU SERVICE</span>
-            <button id="refresh" class="refresh" type="button" aria-label="Actualiser l'état et les statistiques" title="Actualiser">↻</button>
+            <button id="refresh" class="refresh" type="button" aria-label="Actualiser l'état, les statistiques et les applications" title="Actualiser">↻</button>
           </div>
           <div class="health-state">
             <span id="status-indicator" class="status-indicator is-loading" aria-hidden="true"></span>
@@ -80,6 +80,17 @@
           <strong id="registered-apps" class="metric-value">—</strong>
           <span class="metric-help">Clients configurés, hors démo</span>
         </article>
+      </section>
+
+      <section class="detail-panel applications-panel" aria-labelledby="applications-title">
+        <div class="section-heading">
+          <h2 id="applications-title">Applications autorisées</h2>
+          <span class="micro-label">CLIENTS CONFIGURÉS</span>
+        </div>
+        <p class="applications-intro">Identifiants et origines autorisés, hors démo intégrée.</p>
+        <p id="applications-status" class="applications-status" role="status">Chargement des applications…</p>
+        <ul id="applications-list" class="applications-list" aria-label="Applications autorisées"></ul>
+        <noscript><p class="applications-status">Active JavaScript pour afficher les applications autorisées.</p></noscript>
       </section>
 
       <div class="detail-grid">

@@ -101,7 +101,7 @@ export async function createApp({ config, repo, auth, google, sync, drive, files
   }
 
   registerThemeRoutes(app);
-  registerHomeRoutes(app, { repo, registeredApplications: config.clientApps.apps.size - 1 });
+  registerHomeRoutes(app, { repo, clientApps: config.clientApps });
   registerDemoRoutes(app, config.publicBaseUrl);
   registerDemoTextRoutes(app, { config, drive, requireUser });
 

@@ -60,6 +60,14 @@ h1 span { color: var(--color-accent); }
 .metric-value { display: block; font-size: 35px; font-weight: 700; line-height: 1.05; letter-spacing: -.055em; margin: 12px 0 8px; font-variant-numeric: tabular-nums; }
 .metric-help { color: var(--color-text-secondary); font-size: 10px; line-height: 1.5; }
 
+.applications-panel { margin-top: 12px; }
+.applications-intro, .applications-status { margin: 0 0 12px; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
+.applications-status:empty { display: none; }
+.applications-list { list-style: none; padding: 0; margin: 0; }
+.application-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(0, 3fr); gap: 12px; align-items: start; padding: 12px 0; border-top: 1px solid var(--color-border); }
+.application-id { color: var(--color-text); font-size: 13px; overflow-wrap: anywhere; }
+.application-origins { list-style: none; padding: 0; margin: 0; color: var(--color-text-secondary); font: 12px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; overflow-wrap: anywhere; }
+
 .detail-grid { display: grid; grid-template-columns: minmax(0, 1.12fr) minmax(0, 1fr); gap: 12px; margin-top: 12px; }
 .detail-panel { padding: 18px 20px 14px; min-width: 0; }
 .section-heading { gap: 10px; padding-bottom: 13px; }
@@ -104,6 +112,7 @@ h2 { margin: 0; font-size: 16px; letter-spacing: -.035em; font-weight: 700; }
   .metric-label { font-size: 9px; }
   .metric-help { font-size: 10px; }
   .detail-panel { padding: 16px; }
+  .application-row { grid-template-columns: 1fr; gap: 5px; }
   .module-row { gap: 9px; }
   .footer { align-items: flex-start; flex-direction: column; gap: 6px; }
 }

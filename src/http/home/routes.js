@@ -9,8 +9,7 @@ const assets = [
   content: readFileSync(new URL(asset.filename, import.meta.url))
 }));
 
-/** Présentation publique : seuls des comptes agrégés sont exposés. */
-export function registerHomeRoutes(app, { repo, registeredApplications }) {
+export function registerHomeRoutes(app, { repo, clientApps }) {
   for (const asset of assets) {
     app.get(asset.route, (_request, reply) => reply
       .header('Cache-Control', 'no-store')
@@ -23,7 +22,15 @@ export function registerHomeRoutes(app, { repo, registeredApplications }) {
     return reply.header('Cache-Control', 'no-store').send({
       status: 'ok',
       checks: { api: 'ok', sqlite: 'ok' },
-      statistics: { ...stats, registeredApplications }
+      statistics: { ...stats, registeredApplications: clientApps.apps.size - 1 }
     });
+  });
+
+  app.get('/api/public/applications', async (_request, reply) => {
+    const applications = Array.from(clientApps.apps, ([id, origins]) => ({
+      id,
+      origins: Array.from(origins)
+    })).filter(application => application.id !== 'demo');
+    return reply.header('Cache-Control', 'no-store').send({ applications });
   });
 }
