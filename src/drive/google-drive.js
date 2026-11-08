@@ -71,15 +71,16 @@ export function createGoogleDrive({ config, repo, google, http = fetch }) {
     const params = new URLSearchParams({
       spaces: 'appDataFolder',
       q: `name = '${name}' and 'appDataFolder' in parents and trashed = false`,
-      fields: 'nextPageToken,files(id,name)',
+      fields: 'nextPageToken,files(id,name,appProperties)',
       pageSize: '10'
     });
     const response = await request(userId, 'GET', `${API_URL}?${params}`);
     const result = await response.json();
-    if (result.nextPageToken || result.files?.length > 1) {
+    const files = (result.files ?? []).filter(file => file.appProperties?.kind !== MULTI_JSON_KIND);
+    if (result.nextPageToken || files.length > 1) {
       throw new AppError(409, 'DUPLICATE_DRIVE_FILES', 'Plusieurs fichiers de synchronisation portent le même nom. Intervention nécessaire.');
     }
-    return result.files?.[0]?.id ?? null;
+    return files[0]?.id ?? null;
   }
 
   async function resolveFileId(userId, appId) {

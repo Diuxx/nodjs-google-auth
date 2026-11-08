@@ -4,6 +4,7 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { AppError, requireCondition } from '../lib/errors.js';
 import { requireAppOrigin } from '../lib/client-apps.js';
+import { validateJsonFilename } from '../files/files-service.js';
 import { registerDemoRoutes } from './demo/routes.js';
 import { registerHomeRoutes } from './home/routes.js';
 import { registerThemeRoutes } from './theme/routes.js';
@@ -66,16 +67,6 @@ export async function createApp({ config, repo, auth, google, sync, drive, files
     const user = requireUser(request);
     requireAppOrigin(config.clientApps, request.params.appId, request.headers.origin);
     return user;
-  }
-
-  function validateJsonFilename(filename) {
-    const MAX_LENGTH = 120;
-    const validName = typeof filename === 'string' && filename.length > 0 && filename.length <= MAX_LENGTH &&
-      /^[\p{L}\p{N}][\p{L}\p{N} ._()-]*\.json$/iu.test(filename) &&
-      !filename.includes('..');
-    requireCondition(validName, 400, 'INVALID_FILENAME',
-      'Nom de fichier JSON invalide. Utilise un nom simple terminé par .json (120 caractères maximum).');
-    return filename;
   }
 
   function beginFlow(type, request, reply) {

@@ -144,3 +144,50 @@ test('Renommage avec conflit sur le nom et suppression avec version invalide', a
   await assert.rejects(() => files.delete(1, 'todo', a.id, 0.5), { code: 'INVALID_VERSION' });
 });
 
+test('Deux créations simultanées ne créent pas deux fichiers du même nom', async () => {
+  const drive = fakeDrive();
+  const first = createFilesService({ drive });
+  const second = createFilesService({ drive });
+  const results = await Promise.allSettled([
+    first.create(1, 'todo', 'tasks.json', {}),
+    second.create(1, 'todo', 'tasks.json', {})
+  ]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(results.find(result => result.status === 'rejected').reason.code, 'FILENAME_CONFLICT');
+  assert.equal((await first.list(1, 'todo')).files.length, 1);
+});
+
+test('Création et renommage concurrents respectent l’unicité du nom', async () => {
+  const files = createFilesService({ drive: fakeDrive() });
+  const original = await files.create(1, 'todo', 'original.json', {});
+  const results = await Promise.allSettled([
+    files.rename(1, 'todo', original.id, 1, 'target.json'),
+    files.create(1, 'todo', 'target.json', {})
+  ]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(results.find(result => result.status === 'rejected').reason.code, 'FILENAME_CONFLICT');
+});
+
+test('Création et renommage refusent les noms historiques sans modifier le fichier', async () => {
+  const files = createFilesService({ drive: fakeDrive() });
+  const original = await files.create(1, 'todo', 'tasks.json', {});
+  for (const filename of ['nicolabz.todo.json', 'NICOLABZ.budget.JSON']) {
+    await assert.rejects(() => files.create(1, 'todo', filename, {}), { code: 'RESERVED_FILENAME' });
+    await assert.rejects(() => files.rename(1, 'todo', original.id, 1, filename), { code: 'RESERVED_FILENAME' });
+  }
+  assert.equal((await files.get(1, 'todo', original.id)).version, 1);
+});
+
+test('Deux services distincts ne peuvent pas écraser la même version', async () => {
+  const drive = fakeDrive();
+  const first = createFilesService({ drive });
+  const second = createFilesService({ drive });
+  const original = await first.create(1, 'todo', 'tasks.json', {});
+  const results = await Promise.allSettled([
+    first.update(1, 'todo', original.id, 1, { value: 1 }),
+    second.update(1, 'todo', original.id, 1, { value: 2 })
+  ]);
+  assert.equal(results.filter(result => result.status === 'fulfilled').length, 1);
+  assert.equal(results.find(result => result.status === 'rejected').reason.code, 'FILE_CONFLICT');
+});
+

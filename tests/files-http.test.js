@@ -93,6 +93,18 @@ test('Protection d’accès et création de fichier JSON', async t => {
   });
   assert.equal(invalid.statusCode, 400);
   assert.equal(invalid.json().error.code, 'INVALID_FILENAME');
+
+  for (const [method, url, body] of [
+    ['POST', '/api/files/todo', { filename: 'nicolabz.todo.json', data: {} }],
+    ['PATCH', '/api/files/todo/file-1', { filename: 'nicolabz.todo.json', version: 1 }]
+  ]) {
+    const reserved = await instance.inject({ method, url,
+      headers: { origin: 'https://todo.nicolabz.dev', ...cookies }, payload: body });
+    assert.equal(reserved.statusCode, 400);
+    assert.equal(reserved.json().error.code, 'RESERVED_FILENAME');
+  }
+  assert.equal(calls.create.length, 1);
+  assert.equal(calls.rename.length, 0);
 });
 
 test('Lecture, mise à jour, renommage et suppression passent par le service', async t => {

@@ -338,20 +338,20 @@ Pour un nouvel outil, **déclarer un identifiant unique et son origine** dans `C
 
 ### 6.1 Stockage multi-fichiers JSON
 
-En plus du document unique de synchronisation, chaque utilisateur peut gÃ©rer **plusieurs fichiers JSON par application** dans `appDataFolder`. Les fichiers sont identifiÃ©s par leur **ID Drive** (stable) et reliÃ©s Ã  l’application via les mÃ©tadonnÃ©es `appProperties` (pas de sous-dossiers physiques cÃ´tÃ© Drive).
+En plus du document unique de synchronisation, chaque utilisateur peut gérer **plusieurs fichiers JSON par application** dans `appDataFolder`. Les fichiers sont identifiés par leur **ID Drive** (stable) et reliés à l’application via les métadonnées `appProperties` (pas de sous-dossiers physiques côté Drive).
 
-Nouvelles routes gÃ©nÃ©riques :
+Nouvelles routes génériques :
 
-| MÃ©thode | Route | Fonction |
+| Méthode | Route | Fonction |
 | --- | --- | --- |
-| GET | `/api/files/:appId` | Liste les fichiers d'une application (paginÃ©) |
-| POST | `/api/files/:appId` | CrÃ©e un nouveau fichier JSON |
+| GET | `/api/files/:appId` | Liste les fichiers d'une application (paginée) |
+| POST | `/api/files/:appId` | Crée un nouveau fichier JSON |
 | GET | `/api/files/:appId/:fileId` | Lit un fichier JSON |
 | PUT | `/api/files/:appId/:fileId` | Remplace le contenu JSON |
-| PATCH | `/api/files/:appId/:fileId` | Renomme un fichier (versionnÃ©) |
-| DELETE | `/api/files/:appId/:fileId` | Supprime un fichier (versionnÃ©) |
+| PATCH | `/api/files/:appId/:fileId` | Renomme un fichier (versionné) |
+| DELETE | `/api/files/:appId/:fileId` | Supprime un fichier (versionné) |
 
-Exemple de mÃ©tadonnÃ©es renvoyÃ©es :
+Exemple de métadonnées renvoyées :
 
 ```json
 {
@@ -362,7 +362,7 @@ Exemple de mÃ©tadonnÃ©es renvoyÃ©es :
 }
 ```
 
-Contrats de base cÃ´tÃ© serveur :
+Contrats de base côté serveur :
 
 - `POST /api/files/:appId`
 
@@ -393,9 +393,17 @@ Contrats de base cÃ´tÃ© serveur :
 
 - `DELETE /api/files/:appId/:fileId?version=3`
 
-Le champ `version` est un **compteur entier** propre Ã  chaque fichier. Toute Ã©criture (PUT, PATCH, DELETE) doit envoyer la version attendue ; si la version distante diffÃ¨re, l’API renvoie **409 `FILE_CONFLICT`** sans Ã©craser le contenu plus rÃ©cent. Les renommages et suppressions sont eux aussi soumis Ã  ce contrÃ´le.
+Le champ `version` est un **compteur entier** propre à chaque fichier, indépendant du schéma JSON métier. Toute écriture (PUT, PATCH, DELETE) doit envoyer la version attendue ; si la version distante diffère, l’API renvoie **409 `FILE_CONFLICT`**. Les renommages et suppressions sont eux aussi soumis à ce contrôle. Aucune fusion automatique n’est effectuée.
 
-Les fichiers sont stockÃ©s directement dans `appDataFolder`, sans hiÃ©rarchie Drive ; l’arborescence logique `todo/tasks.json`, `todo/projects.json` reste **conceptuelle**. Les noms peuvent Ãªtre modifiÃ©s sans changer l’ID Drive. Le contenu JSON reste libre (objet ou tableau en racine) : l’API ne valide pas de schÃ©ma mÃ©tier.
+Les fichiers sont stockés directement dans `appDataFolder`, sans hiérarchie Drive ; l’arborescence logique `todo/tasks.json`, `todo/projects.json` reste **conceptuelle**. Les noms peuvent être modifiés sans changer l’ID Drive. Le contenu JSON reste libre (objet ou tableau en racine) : l’API ne valide pas de schéma métier.
+
+Les noms `nicolabz.*.json` sont réservés à `/api/sync` : création ou renommage via `/api/files` refusé avec `400 RESERVED_FILENAME`. Les anciens documents ne sont ni migrés ni renommés ; leur recherche ignore les fichiers marqués `multi-json`.
+
+**Concurrence et déploiement :** le serveur utilise des répertoires de verrouillage créés atomiquement dans `${DATABASE_PATH}.files-locks`, à côté de SQLite. Toutes les instances accédant au même Drive doivent partager cette base et ce répertoire sur un même volume local (création exclusive de répertoire requise ; NFS et volumes indépendants non pris en charge). Toutes les mutations et lectures de contenu d’un même utilisateur/application sont sérialisées. Une autre instance reçoit `409 FILE_BUSY` pendant une opération ; après libération, une version périmée reçoit `409 FILE_CONFLICT`. Les créations et renommages utilisent le même verrou pour protéger l’unicité des noms ; une répétition après succès reçoit `409 FILENAME_CONFLICT`.
+
+Le verrou n’expire pas automatiquement : après un arrêt brutal ou un échec serveur laissant le résultat Drive incertain, il est conservé pour empêcher une reprise qui pourrait écraser une écriture tardive. **Récupération opérateur :** arrêter toutes les instances, vérifier dans Drive que l’opération est terminée et contrôler le contenu et la révision, puis supprimer uniquement le répertoire de verrou concerné avant de redémarrer. Son nom est le SHA-256 UTF-8 de `userId:appId` (identifiant utilisateur SQLite). Ne jamais supprimer un verrou pendant qu’une instance peut encore écrire.
+
+Cette coordination protège les appels passant par ce déploiement. Google Drive ne participe pas au verrou et les métadonnées `revision` ne constituent pas un compare-and-swap atomique : les écritures directes externes et les déploiements utilisant des volumes indépendants ne sont pas protégés. Après une réponse perdue, relire le fichier ou sa liste avant toute nouvelle tentative ; aucune garantie d’idempotence globale n’est annoncée. Aucune nouvelle table ni dépendance n’est nécessaire.
 
 Exemple de requête de la page de démonstration :
 

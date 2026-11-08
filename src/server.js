@@ -6,6 +6,7 @@ import { createAuthService } from './auth/auth-service.js';
 import { createGoogleDrive } from './drive/google-drive.js';
 import { createSyncService } from './sync/sync-service.js';
 import { createFilesService } from './files/files-service.js';
+import { createFileMutex } from './files/file-mutex.js';
 import { createApp } from './http/app.js';
 
 const config = loadConfig();
@@ -18,7 +19,7 @@ const google = createGoogleAuth(config);
 const auth = createAuthService({ config, repo, google });
 const drive = createGoogleDrive({ config, repo, google });
 const sync = createSyncService({ drive });
-const files = createFilesService({ drive });
+const files = createFilesService({ drive, mutex: createFileMutex(`${config.databasePath}.files-locks`) });
 const app = await createApp({ config, repo, auth, google, sync, drive, files, database });
 
 let closing = false;

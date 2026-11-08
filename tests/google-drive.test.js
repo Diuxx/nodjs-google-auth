@@ -69,6 +69,33 @@ test('Refuse un accès Drive tant que le compte n’est pas connecté', async ()
   await assert.rejects(() => drive.read(11, 'todo'), { code: 'DRIVE_NOT_CONNECTED' });
 });
 
+test('La synchronisation ignore les fichiers multi-JSON portant le nom historique', async () => {
+  let legacyPresent = false;
+  const document = { schemaVersion: 1, appId: 'todo', version: 1,
+    updatedAt: '2026-11-08T12:00:00Z', data: { tasks: [] } };
+  const drive = createGoogleDrive({
+    config: { cipher: { decrypt: token => token } },
+    repo: {
+      drive: { getEncryptedToken: () => 'fake' },
+      sync: { getFileId: () => null, saveFileId: () => {} }
+    },
+    google: { oauthClientForDrive: () => ({ getAccessToken: async () => ({ token: 'fake' }) }) },
+    http: async url => {
+      if (new URL(url).searchParams.has('q')) {
+        return Response.json({ files: [
+          { id: 'multi-file', appProperties: { kind: 'multi-json' } },
+          ...(legacyPresent ? [{ id: 'legacy-file' }] : [])
+        ] });
+      }
+      assert.equal(new URL(url).pathname.split('/').pop(), 'legacy-file');
+      return Response.json(document);
+    }
+  });
+  assert.deepEqual(await drive.read(1, 'todo'), { fileId: null, document: null });
+  legacyPresent = true;
+  assert.deepEqual(await drive.read(1, 'todo'), { fileId: 'legacy-file', document });
+});
+
 test('Crée un vrai fichier TXT visible dans Mon Drive (et non dans appDataFolder)', async () => {
   const cipher = createTokenCipher(Buffer.alloc(32, 3).toString('base64'));
   let upload;

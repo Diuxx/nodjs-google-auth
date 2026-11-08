@@ -1,7 +1,18 @@
 import { AppError, requireCondition } from '../lib/errors.js';
 import { createKeyedMutex } from '../sync/keyed-mutex.js';
 
-export function createFilesService({ drive, mutex = createKeyedMutex(), clock = () => new Date() }) {
+const processMutex = createKeyedMutex();
+
+export function validateJsonFilename(filename) {
+  requireCondition(typeof filename === 'string' && filename.length <= 120 &&
+    /^[\p{L}\p{N}][\p{L}\p{N} ._()-]*\.json$/iu.test(filename) && !filename.includes('..'),
+    400, 'INVALID_FILENAME', 'Nom de fichier JSON invalide.');
+  requireCondition(!/^nicolabz\..*\.json$/i.test(filename),
+    400, 'RESERVED_FILENAME', 'Ce nom est réservé à la synchronisation historique.');
+  return filename;
+}
+
+export function createFilesService({ drive, mutex = processMutex, clock = () => new Date() }) {
   const nowIso = () => clock().toISOString();
 
   return {
@@ -10,30 +21,35 @@ export function createFilesService({ drive, mutex = createKeyedMutex(), clock = 
     },
 
     async create(userId, appId, filename, data) {
+      validateJsonFilename(filename);
       requireCondition(data !== null && typeof data === 'object',
         400, 'INVALID_DATA', 'Les donn\u00e9es doivent \u00eatre un objet ou un tableau JSON.');
 
-      const existing = await drive.findJsonFileByName(userId, appId, filename);
-      if (existing) {
-        throw new AppError(409, 'FILENAME_CONFLICT', 'Un fichier porte d\u00e9j\u00e0 ce nom pour cette application.');
-      }
+      return mutex.run(`${userId}:${appId}`, async () => {
+        const existing = await drive.findJsonFileByName(userId, appId, filename);
+        if (existing) {
+          throw new AppError(409, 'FILENAME_CONFLICT', 'Un fichier porte d\u00e9j\u00e0 ce nom pour cette application.');
+        }
 
-      const version = 1;
-      const updatedAt = nowIso();
-      const created = await drive.createJsonFile(userId, appId, filename, version, updatedAt, data);
-      return { id: created.id, filename: created.filename, version, updatedAt };
+        const version = 1;
+        const updatedAt = nowIso();
+        const created = await drive.createJsonFile(userId, appId, filename, version, updatedAt, data);
+        return { id: created.id, filename: created.filename, version, updatedAt };
+      });
     },
 
     async get(userId, appId, fileId) {
-      const file = await drive.getJsonFile(userId, appId, fileId);
-      if (!file) throw new AppError(404, 'FILE_NOT_FOUND', 'Fichier introuvable.');
-      return {
-        id: file.id,
-        filename: file.filename,
-        version: file.version,
-        updatedAt: file.updatedAt,
-        data: file.data
-      };
+      return mutex.run(`${userId}:${appId}`, async () => {
+        const file = await drive.getJsonFile(userId, appId, fileId);
+        if (!file) throw new AppError(404, 'FILE_NOT_FOUND', 'Fichier introuvable.');
+        return {
+          id: file.id,
+          filename: file.filename,
+          version: file.version,
+          updatedAt: file.updatedAt,
+          data: file.data
+        };
+      });
     },
 
     async update(userId, appId, fileId, expectedVersion, data) {
@@ -42,7 +58,7 @@ export function createFilesService({ drive, mutex = createKeyedMutex(), clock = 
       requireCondition(data !== null && typeof data === 'object',
         400, 'INVALID_DATA', 'Les donn\u00e9es doivent \u00eatre un objet ou un tableau JSON.');
 
-      const key = `${userId}:${appId}:${fileId}`;
+      const key = `${userId}:${appId}`;
       return mutex.run(key, async () => {
         const meta = await drive.getJsonFileMetadata(userId, appId, fileId);
         if (!meta) throw new AppError(404, 'FILE_NOT_FOUND', 'Fichier introuvable.');
@@ -61,10 +77,11 @@ export function createFilesService({ drive, mutex = createKeyedMutex(), clock = 
     },
 
     async rename(userId, appId, fileId, expectedVersion, filename) {
+      validateJsonFilename(filename);
       requireCondition(Number.isSafeInteger(expectedVersion) && expectedVersion >= 0,
         400, 'INVALID_VERSION', 'Version attendue invalide.');
 
-      const key = `${userId}:${appId}:${fileId}`;
+      const key = `${userId}:${appId}`;
       return mutex.run(key, async () => {
         const meta = await drive.getJsonFileMetadata(userId, appId, fileId);
         if (!meta) throw new AppError(404, 'FILE_NOT_FOUND', 'Fichier introuvable.');
@@ -90,7 +107,7 @@ export function createFilesService({ drive, mutex = createKeyedMutex(), clock = 
       requireCondition(Number.isSafeInteger(expectedVersion) && expectedVersion >= 0,
         400, 'INVALID_VERSION', 'Version attendue invalide.');
 
-      const key = `${userId}:${appId}:${fileId}`;
+      const key = `${userId}:${appId}`;
       return mutex.run(key, async () => {
         const meta = await drive.getJsonFileMetadata(userId, appId, fileId);
         if (!meta) throw new AppError(404, 'FILE_NOT_FOUND', 'Fichier introuvable.');
