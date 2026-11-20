@@ -27,10 +27,13 @@ export function registerHomeRoutes(app, { repo, clientApps }) {
   });
 
   app.get('/api/public/applications', async (_request, reply) => {
-    const applications = Array.from(clientApps.apps, ([id, origins]) => ({
-      id,
-      origins: Array.from(origins)
-    })).filter(application => application.id !== 'demo');
+    const applications = [...clientApps.apps.keys()]
+      .filter(id => id !== 'demo')
+      .map(id => ({
+        id,
+        requiresDrive: clientApps.driveRequiredApps.has(id),
+        multiple: clientApps.multipleApps.has(id)
+      }));
     return reply.header('Cache-Control', 'no-store').send({ applications });
   });
 }

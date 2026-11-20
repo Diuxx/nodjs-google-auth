@@ -3,6 +3,8 @@ import { AppError } from '../lib/errors.js';
 
 const API_URL = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files';
+const FOLDER_MIME = 'application/vnd.google-apps.folder';
+const JSON_MIME = 'application/json';
 const MULTI_JSON_KIND = 'multi-json';
 
 function driveError(status) {
@@ -49,38 +51,127 @@ export function createGoogleDrive({ config, repo, google, http = fetch }) {
     return response;
   }
 
-  async function createFile(userId, metadata, content, mediaType) {
+  function multipartBody(metadata, content, mediaType) {
     const boundary = `nicolabz-${randomBytes(12).toString('hex')}`;
-    const multipart = [
+    const body = [
       `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,
       `--${boundary}\r\nContent-Type: ${mediaType}\r\n\r\n${content}\r\n`,
       `--${boundary}--\r\n`
     ].join('');
+    return { body, contentType: `multipart/related; boundary=${boundary}` };
+  }
+
+  async function createFile(userId, metadata, content, mediaType) {
     const response = await request(userId, 'POST',
-      `${UPLOAD_URL}?uploadType=multipart&fields=id,name,appProperties,modifiedTime,webViewLink`, {
-        body: multipart, contentType: `multipart/related; boundary=${boundary}`
-      });
+      `${UPLOAD_URL}?uploadType=multipart&fields=id,name,appProperties,modifiedTime,webViewLink`,
+      multipartBody(metadata, content, mediaType));
+    if (!response.ok) throw driveError(response.status);
     const created = await response.json();
     if (!created.id) throw new AppError(502, 'DRIVE_CREATE_FAILED',
       'Google Drive n’a pas confirmé la création du fichier.');
     return created;
   }
 
+  function queryValue(value) {
+    return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  }
+
+  async function listEntries(userId, query) {
+    const files = [];
+    const seenPages = new Set();
+    let pageToken;
+    do {
+      const params = new URLSearchParams({
+        spaces: 'appDataFolder', q: query,
+        fields: 'nextPageToken,files(id,name)', pageSize: '1000'
+      });
+      if (pageToken) params.set('pageToken', pageToken);
+      const response = await request(userId, 'GET', `${API_URL}?${params}`);
+      if (!response.ok) throw driveError(response.status);
+      const result = await response.json();
+      if (!Array.isArray(result.files) || result.files.some(file =>
+        !file || typeof file.id !== 'string' || !file.id || typeof file.name !== 'string' || !file.name) ||
+        (result.nextPageToken !== undefined &&
+          (typeof result.nextPageToken !== 'string' || !result.nextPageToken || seenPages.has(result.nextPageToken)))) {
+        throw new AppError(502, 'INVALID_DRIVE_RESPONSE', 'Réponse de liste Google Drive invalide.');
+      }
+      files.push(...result.files);
+      pageToken = result.nextPageToken;
+      if (pageToken) seenPages.add(pageToken);
+    } while (pageToken);
+    return files;
+  }
+
+  function uniqueEntry(files) {
+    if (files.length > 1) {
+      throw new AppError(409, 'DUPLICATE_DRIVE_FILES',
+        'Plusieurs éléments de synchronisation portent le même nom. Intervention nécessaire.');
+    }
+    return files[0]?.id ?? null;
+  }
+
+  async function findAppFolder(userId, appId) {
+    const name = queryValue(`nicolabz.${appId}`);
+    return uniqueEntry(await listEntries(userId,
+      `name = '${name}' and mimeType = '${FOLDER_MIME}' and 'appDataFolder' in parents and trashed = false`));
+  }
+
+  async function createAppFolder(userId, appId) {
+    const response = await request(userId, 'POST', `${API_URL}?fields=id`, {
+      body: JSON.stringify({ name: `nicolabz.${appId}`, mimeType: FOLDER_MIME, parents: ['appDataFolder'] }),
+      contentType: 'application/json; charset=UTF-8'
+    });
+    if (!response.ok) throw driveError(response.status);
+    const folder = await response.json();
+    if (typeof folder.id !== 'string' || !folder.id) {
+      throw new AppError(502, 'DRIVE_CREATE_FAILED', 'Google Drive n’a pas confirmé la création du dossier.');
+    }
+    return folder.id;
+  }
+
+  async function listFolderFiles(userId, folderId, name = null) {
+    const parent = queryValue(folderId);
+    const nameFilter = name === null ? '' : ` and name = '${queryValue(name)}'`;
+    return listEntries(userId,
+      `'${parent}' in parents and mimeType = '${JSON_MIME}' and trashed = false${nameFilter}`);
+  }
+
+  async function readDocument(userId, appId, fileId) {
+    const response = await request(userId, 'GET', `${API_URL}/${encodeURIComponent(fileId)}?alt=media`);
+    if (response.status === 404) return null;
+    let document;
+    try { document = await response.json(); } catch {
+      throw new AppError(502, 'INVALID_DRIVE_DOCUMENT', 'Fichier de synchronisation Google Drive invalide.');
+    }
+    if (document?.schemaVersion !== 1 || document.appId !== appId ||
+        !Number.isSafeInteger(document.version) || document.version < 1 ||
+        typeof document.data !== 'object' || document.data === null ||
+        typeof document.updatedAt !== 'string') {
+      throw new AppError(502, 'INVALID_DRIVE_DOCUMENT', 'Format du fichier Google Drive non reconnu.');
+    }
+    return document;
+  }
+
   async function findFile(userId, appId) {
-    const name = `nicolabz.${appId}.json`;
+    const name = queryValue(`nicolabz.${appId}.json`);
     const params = new URLSearchParams({
       spaces: 'appDataFolder',
-      q: `name = '${name}' and 'appDataFolder' in parents and trashed = false`,
+      q: `name = '${name}' and mimeType = '${JSON_MIME}' and 'appDataFolder' in parents and trashed = false`,
       fields: 'nextPageToken,files(id,name,appProperties)',
       pageSize: '10'
     });
     const response = await request(userId, 'GET', `${API_URL}?${params}`);
+    if (!response.ok) throw driveError(response.status);
     const result = await response.json();
     const files = (result.files ?? []).filter(file => file.appProperties?.kind !== MULTI_JSON_KIND);
     if (result.nextPageToken || files.length > 1) {
       throw new AppError(409, 'DUPLICATE_DRIVE_FILES', 'Plusieurs fichiers de synchronisation portent le même nom. Intervention nécessaire.');
     }
     return files[0]?.id ?? null;
+  }
+
+  async function hasLegacyFile(userId, appId) {
+    return Boolean(await findFile(userId, appId));
   }
 
   async function resolveFileId(userId, appId) {
@@ -94,25 +185,66 @@ export function createGoogleDrive({ config, repo, google, http = fetch }) {
   async function read(userId, appId) {
     let fileId = await resolveFileId(userId, appId);
     if (!fileId) return { fileId: null, document: null };
-    let response = await request(userId, 'GET', `${API_URL}/${encodeURIComponent(fileId)}?alt=media`);
-    if (response.status === 404) {
+    let document = await readDocument(userId, appId, fileId);
+    if (!document) {
       repo.sync.clearFileId(userId, appId);
       fileId = await resolveFileId(userId, appId);
       if (!fileId) return { fileId: null, document: null };
-      response = await request(userId, 'GET', `${API_URL}/${encodeURIComponent(fileId)}?alt=media`);
-      if (response.status === 404) throw new AppError(502, 'DRIVE_FILE_NOT_FOUND', 'Fichier Drive introuvable.');
-    }
-    let document;
-    try { document = await response.json(); } catch {
-      throw new AppError(502, 'INVALID_DRIVE_DOCUMENT', 'Fichier de synchronisation Google Drive invalide.');
-    }
-    if (document?.schemaVersion !== 1 || document.appId !== appId ||
-        !Number.isSafeInteger(document.version) || document.version < 1 ||
-        typeof document.data !== 'object' || document.data === null ||
-        typeof document.updatedAt !== 'string') {
-      throw new AppError(502, 'INVALID_DRIVE_DOCUMENT', 'Format du fichier Google Drive non reconnu.');
+      document = await readDocument(userId, appId, fileId);
+      if (!document) throw new AppError(502, 'DRIVE_FILE_NOT_FOUND', 'Fichier Drive introuvable.');
     }
     return { fileId, document };
+  }
+
+  async function listFiles(userId, appId) {
+    const folderId = await findAppFolder(userId, appId);
+    if (!folderId) return [];
+    const files = await listFolderFiles(userId, folderId);
+    const names = new Set();
+    for (const file of files) {
+      if (names.has(file.name)) {
+        throw new AppError(409, 'DUPLICATE_DRIVE_FILES',
+          'Plusieurs fichiers de synchronisation portent le même nom. Intervention nécessaire.');
+      }
+      names.add(file.name);
+    }
+    return [...names].sort();
+  }
+
+  async function readFile(userId, appId, name) {
+    const folderId = await findAppFolder(userId, appId);
+    if (!folderId) return { folderId: null, fileId: null, document: null };
+    const fileId = uniqueEntry(await listFolderFiles(userId, folderId, name));
+    if (!fileId) return { folderId, fileId: null, document: null };
+    const document = await readDocument(userId, appId, fileId);
+    if (!document) throw new AppError(409, 'DRIVE_FILE_REMOVED', 'Fichier Drive supprimé. Recharge les données avant de réessayer.');
+    return { folderId, fileId, document };
+  }
+
+  async function writeFile(userId, appId, name, folderId, fileId, document) {
+    const content = JSON.stringify(document);
+    if (fileId) {
+      const response = await request(userId, 'PATCH',
+        `${UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=media&fields=id`,
+        { body: content, contentType: 'application/json; charset=UTF-8' });
+      if (response.status === 404) throw new AppError(409, 'DRIVE_FILE_REMOVED', 'Fichier Drive supprimé. Recharge les données avant de réessayer.');
+      return;
+    }
+    const parentId = folderId || await createAppFolder(userId, appId);
+    await createFile(userId,
+      { name, mimeType: JSON_MIME, parents: [parentId] }, content, 'application/json; charset=UTF-8');
+  }
+
+  async function renameFile(userId, fileId, name, document) {
+    const response = await request(userId, 'PATCH',
+      `${UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=multipart&fields=id`,
+      multipartBody({ name }, JSON.stringify(document), 'application/json; charset=UTF-8'));
+    if (response.status === 404) throw new AppError(409, 'DRIVE_FILE_REMOVED', 'Fichier Drive supprimé. Recharge les données avant de réessayer.');
+  }
+
+  async function deleteFile(userId, fileId) {
+    const response = await request(userId, 'DELETE', `${API_URL}/${encodeURIComponent(fileId)}`);
+    if (response.status === 404) throw new AppError(409, 'DRIVE_FILE_REMOVED', 'Fichier Drive supprimé. Recharge les données avant de réessayer.');
   }
 
   async function write(userId, appId, fileId, document) {
@@ -144,199 +276,5 @@ export function createGoogleDrive({ config, repo, google, http = fetch }) {
     };
   }
 
-  function parseRevision(appProperties) {
-    if (!appProperties) return 0;
-    const raw = Number.parseInt(appProperties.revision ?? '0', 10);
-    if (!Number.isSafeInteger(raw) || raw < 0) return 0;
-    return raw;
-  }
-
-  async function listJsonFiles(userId, appId, { pageSize = 20, pageToken } = {}) {
-    const size = Number.isInteger(pageSize) && pageSize > 0 ? Math.min(pageSize, 100) : 20;
-    const q = [
-      "'appDataFolder' in parents",
-      "trashed = false",
-      "mimeType = 'application/json'",
-      `appProperties has { key='appId' and value='${appId.replace(/['\\]/g, '\\$&')}' }`,
-      `appProperties has { key='kind' and value='${MULTI_JSON_KIND}' }`
-    ].join(' and ');
-    const params = new URLSearchParams({
-      spaces: 'appDataFolder',
-      q,
-      fields: 'nextPageToken,files(id,name,appProperties,modifiedTime)',
-      pageSize: String(size)
-    });
-    if (pageToken) params.set('pageToken', pageToken);
-    const response = await request(userId, 'GET', `${API_URL}?${params}`);
-    const body = await response.json();
-    const files = (body.files ?? []).map(file => ({
-      id: file.id,
-      filename: file.name,
-      version: parseRevision(file.appProperties),
-      updatedAt: file.appProperties?.updatedAt ?? file.modifiedTime ?? null
-    }));
-    return { files, nextPageToken: body.nextPageToken ?? null };
-  }
-
-  async function findJsonFileByName(userId, appId, filename) {
-    const q = [
-      "'appDataFolder' in parents",
-      "trashed = false",
-      "mimeType = 'application/json'",
-      `name = '${filename.replace(/['\\]/g, '\\$&')}'`,
-      `appProperties has { key='appId' and value='${appId.replace(/['\\]/g, '\\$&')}' }`,
-      `appProperties has { key='kind' and value='${MULTI_JSON_KIND}' }`
-    ].join(' and ');
-    const params = new URLSearchParams({
-      spaces: 'appDataFolder',
-      q,
-      fields: 'files(id,name,appProperties,modifiedTime)',
-      pageSize: '10'
-    });
-    const response = await request(userId, 'GET', `${API_URL}?${params}`);
-    const body = await response.json();
-    if (body.files?.length > 1) {
-      throw new AppError(409, 'DUPLICATE_DRIVE_FILES', 'Plusieurs fichiers portent le même nom. Intervention nécessaire.');
-    }
-    const file = body.files?.[0];
-    if (!file) return null;
-    return {
-      id: file.id,
-      filename: file.name,
-      version: parseRevision(file.appProperties),
-      updatedAt: file.appProperties?.updatedAt ?? file.modifiedTime ?? null,
-      appProperties: file.appProperties ?? {}
-    };
-  }
-
-  async function getJsonFileMetadata(userId, appId, fileId) {
-    const params = new URLSearchParams({
-      fields: 'id,name,appProperties,modifiedTime,trashed'
-    });
-    const response = await request(userId, 'GET', `${API_URL}/${encodeURIComponent(fileId)}?${params}`);
-    if (response.status === 404) return null;
-    const file = await response.json();
-    if (file.trashed) return null;
-    const appProperties = file.appProperties ?? {};
-    if (appProperties.appId !== appId || appProperties.kind !== MULTI_JSON_KIND) return null;
-    return {
-      id: file.id,
-      filename: file.name,
-      version: parseRevision(appProperties),
-      updatedAt: appProperties.updatedAt ?? file.modifiedTime ?? null,
-      appProperties
-    };
-  }
-
-  async function getJsonFile(userId, appId, fileId) {
-    const meta = await getJsonFileMetadata(userId, appId, fileId);
-    if (!meta) return null;
-    const response = await request(userId, 'GET', `${API_URL}/${encodeURIComponent(fileId)}?alt=media`);
-    if (response.status === 404) return null;
-    let data;
-    try {
-      data = await response.json();
-    } catch {
-      throw new AppError(502, 'INVALID_DRIVE_DOCUMENT', 'Fichier Google Drive JSON invalide.');
-    }
-    if (data === null || typeof data !== 'object') {
-      throw new AppError(502, 'INVALID_DRIVE_DOCUMENT', 'Fichier Google Drive JSON invalide.');
-    }
-    return { ...meta, data };
-  }
-
-  async function createJsonFile(userId, appId, filename, version, updatedAt, data) {
-    const appProperties = { appId, kind: MULTI_JSON_KIND, revision: String(version), updatedAt };
-    const created = await createFile(userId,
-      { name: filename, mimeType: 'application/json', parents: ['appDataFolder'], appProperties },
-      JSON.stringify(data), 'application/json; charset=UTF-8');
-    return {
-      id: created.id,
-      filename: created.name || filename,
-      version,
-      updatedAt,
-      appProperties
-    };
-  }
-
-  async function updateJsonFile(userId, appId, fileId, version, updatedAt, data, currentAppProperties = {}) {
-    const appProperties = {
-      ...currentAppProperties,
-      appId,
-      kind: MULTI_JSON_KIND,
-      revision: String(version),
-      updatedAt
-    };
-    const boundary = `nicolabz-${randomBytes(12).toString('hex')}`;
-    const multipart = [
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify({ appProperties })}\r\n`,
-      `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(data)}\r\n`,
-      `--${boundary}--\r\n`
-    ].join('');
-    const response = await request(userId, 'PATCH',
-      `${UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=multipart&fields=id,name,appProperties,modifiedTime`, {
-        body: multipart,
-        contentType: `multipart/related; boundary=${boundary}`
-      });
-    if (response.status === 404) return null;
-    const updated = await response.json();
-    if (!updated.id) throw new AppError(502, 'DRIVE_UPDATE_FAILED',
-      'Google Drive n’a pas confirmé la mise à jour du fichier.');
-    return {
-      id: updated.id,
-      filename: updated.name,
-      version,
-      updatedAt,
-      appProperties
-    };
-  }
-
-  async function renameJsonFile(userId, appId, fileId, filename, version, updatedAt, currentAppProperties = {}) {
-    const appProperties = {
-      ...currentAppProperties,
-      appId,
-      kind: MULTI_JSON_KIND,
-      revision: String(version),
-      updatedAt
-    };
-    const response = await request(userId, 'PATCH',
-      `${API_URL}/${encodeURIComponent(fileId)}?fields=id,name,appProperties,modifiedTime`, {
-        body: JSON.stringify({ name: filename, appProperties }),
-        contentType: 'application/json; charset=UTF-8'
-      });
-    if (response.status === 404) return null;
-    const updated = await response.json();
-    if (!updated.id) throw new AppError(502, 'DRIVE_UPDATE_FAILED',
-      'Google Drive n’a pas confirmé la mise à jour du fichier.');
-    return {
-      id: updated.id,
-      filename: updated.name,
-      version,
-      updatedAt,
-      appProperties
-    };
-  }
-
-  async function deleteJsonFile(userId, appId, fileId) {
-    const meta = await getJsonFileMetadata(userId, appId, fileId);
-    if (!meta) return false;
-    const response = await request(userId, 'DELETE', `${API_URL}/${encodeURIComponent(fileId)}`);
-    if (response.status === 404) return false;
-    if (!response.ok && response.status !== 204) throw driveError(response.status);
-    return true;
-  }
-
-  return {
-    read,
-    write,
-    createTextFile,
-    listJsonFiles,
-    findJsonFileByName,
-    getJsonFile,
-    getJsonFileMetadata,
-    createJsonFile,
-    updateJsonFile,
-    renameJsonFile,
-    deleteJsonFile
-  };
+  return { read, write, listFiles, readFile, writeFile, renameFile, deleteFile, hasLegacyFile, createTextFile };
 }

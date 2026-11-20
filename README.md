@@ -10,6 +10,10 @@
 - **Accueil intégré** : `/` présente le service, son état local, les compteurs anonymisés et les applications autorisées.
 - **Page de test intégrée** : `/demo`, connexion Google, consentement Drive et création d’un vrai fichier `.txt` dans « Mon Drive », sans serveur frontend supplémentaire.
 
+For per-application Drive settings and Google Cloud setup, see [docs/USAGE.md](docs/USAGE.md).
+The same guide describes optional multi-file JSON sync via `multiple: true`.
+The home page publicly shows application IDs and settings; signed-in users can request their own Drive file counts.
+
 > **Portée importante** : ceci est une **API centralisée avec Google comme fournisseur OpenID Connect**, et **non un fournisseur OIDC universel**. Les clients sont des applications web s'exécutant dans le navigateur, sur les origines explicitement autorisées. Pour connecter des outils tiers exigeant une découverte OIDC (`/.well-known/openid-configuration`), il faudra ajouter un véritable serveur OIDC (ex. `oidc-provider`) ou déployer Authentik. Les cookies de session ne sont jamais partagés entre les applications : chaque application interroge l'API centrale.
 
 ## Accueil et statistiques (v0.1.4)
@@ -40,7 +44,7 @@ Les valeurs ci-dessus sont **illustratives**. Les chiffres réellement affichés
 
 Le statut **« API opérationnelle »** confirme la réponse HTTP et une requête SQLite réussie. Il ne teste **ni le service OAuth de Google ni Google Drive**, et ne garantit donc pas leur disponibilité. En cas d’échec du statut, la page affiche « Statut indisponible », sans inventer des chiffres. Les compteurs sont publics et agrégés : **aucun e-mail, nom, identifiant Google ou jeton n’est transmis**.
 
-La page liste aussi les identifiants des applications déclarées dans `CLIENT_APPS_JSON` et leurs origines autorisées, via **`GET /api/public/applications`**. La démo interne est exclue, comme pour le compteur. Cette liste est accessible sans authentification et ne contient ni identifiants utilisateur ni secrets. Les origines sont visibles par tout visiteur : protège le service par un reverse proxy si tu souhaites garder ces informations ou les totaux privés. Le bouton **Actualiser** recharge les statistiques et la liste ; aucune mise à jour automatique en arrière-plan.
+The public application list shows application IDs and Drive/multi-file settings, but not origins or credentials. The refresh button reloads the list and statistics; file counts are requested separately for the signed-in user.
 
 Aucune migration SQLite, nouvelle dépendance ou variable d’environnement n’est nécessaire : la page utilise les tables existantes.
 
@@ -83,7 +87,7 @@ Console : https://console.cloud.google.com/
 1. **Créer un projet Google Cloud** (ou en sélectionner un existant).
 2. **APIs & Services → Library** : activer **Google Drive API**.
 3. **Google Auth Platform / OAuth consent screen** : configurer le nom de l'application, l'adresse e-mail de support, les domaines autorisés et le type d'audience (*External* pour des comptes Google personnels). Ajouter les comptes utilisateurs à la liste des **test users** tant que le projet est en mode Testing.
-4. Dans les autorisations (*Data Access*), déclarer les scopes nécessaires : `openid`, `email`, `profile` pour la connexion, **`https://www.googleapis.com/auth/drive.appdata`** pour les JSON de synchronisation et **`https://www.googleapis.com/auth/drive.file`** pour créer un fichier `.txt` visible dans « Mon Drive ». Les permissions Drive sont demandées **séparément**, seulement lors d’une demande d’accès au Drive. La page `/demo` demande les deux scopes Drive ; les autres applications continuent de demander `drive.appdata` uniquement.
+4. In **Data Access**, declare the scopes used by the server: `openid`, `email`, and `profile` for identity; **`https://www.googleapis.com/auth/drive.appdata`** for sync JSON; and **`https://www.googleapis.com/auth/drive.file`** for the internal `/demo` visible text-file feature. Apps with `"requiresDrive":true` in `CLIENT_APPS_JSON` request identity and `drive.appdata` together at login; other apps keep identity-only login and can authorize Drive separately.
 5. **Clients → Create client → Web application**. Utiliser le **même client OAuth Google** pour toutes tes applications web : seul le serveur central communique avec Google.
 6. Déclarer **exactement** ces **Authorized redirect URIs** :
 
@@ -311,7 +315,7 @@ async function saveTodo(version, tasks) {
 }
 ```
 
-Pour un nouvel outil, **déclarer un identifiant unique et son origine** dans `CLIENT_APPS_JSON`, puis utiliser cet identifiant comme namespace dans `/api/sync/:appId`. **Une origine ne peut appartenir qu'à une seule application**. Les tokens Google sont confinés au serveur et ne sont pas renvoyés aux clients.
+Pour un nouvel outil, **déclarer un identifiant unique et son origine** dans `CLIENT_APPS_JSON`, puis utiliser cet identifiant comme namespace dans `/api/sync/:appId`. Set `"requiresDrive":true` there only when that application needs Drive during login; leaving it out preserves identity-only login. **Une origine ne peut appartenir qu'à une seule application**. Les tokens Google sont confinés au serveur et ne sont pas renvoyés aux clients.
 
 ## 6. Contrat HTTP
 
@@ -336,74 +340,9 @@ Pour un nouvel outil, **déclarer un identifiant unique et son origine** dans `C
 | GET | `/api/sync/:appId` | Lit le JSON du Drive de l'utilisateur |
 | PUT | `/api/sync/:appId` | Sauvegarde `{ "version": 0, "data": { ... } }` |
 
-### 6.1 Stockage multi-fichiers JSON
+### 6.1 Multiple JSON files
 
-En plus du document unique de synchronisation, chaque utilisateur peut gérer **plusieurs fichiers JSON par application** dans `appDataFolder`. Les fichiers sont identifiés par leur **ID Drive** (stable) et reliés à l’application via les métadonnées `appProperties` (pas de sous-dossiers physiques côté Drive).
-
-Nouvelles routes génériques :
-
-| Méthode | Route | Fonction |
-| --- | --- | --- |
-| GET | `/api/files/:appId` | Liste les fichiers d'une application (paginée) |
-| POST | `/api/files/:appId` | Crée un nouveau fichier JSON |
-| GET | `/api/files/:appId/:fileId` | Lit un fichier JSON |
-| PUT | `/api/files/:appId/:fileId` | Remplace le contenu JSON |
-| PATCH | `/api/files/:appId/:fileId` | Renomme un fichier (versionné) |
-| DELETE | `/api/files/:appId/:fileId` | Supprime un fichier (versionné) |
-
-Exemple de métadonnées renvoyées :
-
-```json
-{
-  "id": "drive-file-id",
-  "filename": "tasks.json",
-  "version": 3,
-  "updatedAt": "2026-11-08T12:00:00Z"
-}
-```
-
-Contrats de base côté serveur :
-
-- `POST /api/files/:appId`
-
-  ```json
-  {
-    "filename": "tasks.json",
-    "data": { "tasks": [] }
-  }
-  ```
-
-- `PUT /api/files/:appId/:fileId`
-
-  ```json
-  {
-    "version": 1,
-    "data": { "tasks": ["a", "b"] }
-  }
-  ```
-
-- `PATCH /api/files/:appId/:fileId`
-
-  ```json
-  {
-    "version": 2,
-    "filename": "archive-2026.json"
-  }
-  ```
-
-- `DELETE /api/files/:appId/:fileId?version=3`
-
-Le champ `version` est un **compteur entier** propre à chaque fichier, indépendant du schéma JSON métier. Toute écriture (PUT, PATCH, DELETE) doit envoyer la version attendue ; si la version distante diffère, l’API renvoie **409 `FILE_CONFLICT`**. Les renommages et suppressions sont eux aussi soumis à ce contrôle. Aucune fusion automatique n’est effectuée.
-
-Les fichiers sont stockés directement dans `appDataFolder`, sans hiérarchie Drive ; l’arborescence logique `todo/tasks.json`, `todo/projects.json` reste **conceptuelle**. Les noms peuvent être modifiés sans changer l’ID Drive. Le contenu JSON reste libre (objet ou tableau en racine) : l’API ne valide pas de schéma métier.
-
-Les noms `nicolabz.*.json` sont réservés à `/api/sync` : création ou renommage via `/api/files` refusé avec `400 RESERVED_FILENAME`. Les anciens documents ne sont ni migrés ni renommés ; leur recherche ignore les fichiers marqués `multi-json`.
-
-**Concurrence et déploiement :** le serveur utilise des répertoires de verrouillage créés atomiquement dans `${DATABASE_PATH}.files-locks`, à côté de SQLite. Toutes les instances accédant au même Drive doivent partager cette base et ce répertoire sur un même volume local (création exclusive de répertoire requise ; NFS et volumes indépendants non pris en charge). Toutes les mutations et lectures de contenu d’un même utilisateur/application sont sérialisées. Une autre instance reçoit `409 FILE_BUSY` pendant une opération ; après libération, une version périmée reçoit `409 FILE_CONFLICT`. Les créations et renommages utilisent le même verrou pour protéger l’unicité des noms ; une répétition après succès reçoit `409 FILENAME_CONFLICT`.
-
-Le verrou n’expire pas automatiquement : après un arrêt brutal ou un échec serveur laissant le résultat Drive incertain, il est conservé pour empêcher une reprise qui pourrait écraser une écriture tardive. **Récupération opérateur :** arrêter toutes les instances, vérifier dans Drive que l’opération est terminée et contrôler le contenu et la révision, puis supprimer uniquement le répertoire de verrou concerné avant de redémarrer. Son nom est le SHA-256 UTF-8 de `userId:appId` (identifiant utilisateur SQLite). Ne jamais supprimer un verrou pendant qu’une instance peut encore écrire.
-
-Cette coordination protège les appels passant par ce déploiement. Google Drive ne participe pas au verrou et les métadonnées `revision` ne constituent pas un compare-and-swap atomique : les écritures directes externes et les déploiements utilisant des volumes indépendants ne sont pas protégés. Après une réponse perdue, relire le fichier ou sa liste avant toute nouvelle tentative ; aucune garantie d’idempotence globale n’est annoncée. Aucune nouvelle table ni dépendance n’est nécessaire.
+See [docs/USAGE.md](docs/USAGE.md) for the versioned folder-based multi-file API.
 
 Exemple de requête de la page de démonstration :
 

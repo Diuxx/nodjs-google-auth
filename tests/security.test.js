@@ -37,3 +37,31 @@ test('Origines déclarées : rejette les retours malveillants et les croisements
   assert.doesNotThrow(() => requireAppOrigin(apps, 'todo', 'https://todo.nicolabz.dev'));
   assert.throws(() => parseClientApps('[{"id":"todo","origins":["http://evil.com"]}]', true));
 });
+
+test('requiresDrive est optionnel pour les anciennes configurations et strictement booléen', () => {
+  const apps = parseClientApps(JSON.stringify([
+    { id: 'todo', origins: ['https://todo.example.org'] },
+    { id: 'pecule', origins: ['https://pecule.example.org'], requiresDrive: true }
+  ]), true);
+  assert.equal(apps.driveRequiredApps.has('todo'), false);
+  assert.equal(apps.driveRequiredApps.has('pecule'), true);
+  assert.throws(() => parseClientApps(JSON.stringify([
+    { id: 'todo', origins: ['https://todo.example.org'], requiresDrive: 'true' }
+  ]), true), /requiresDrive.*booléen/);
+});
+
+test('Le mode multiple est facultatif et strictement booléen', () => {
+  const apps = parseClientApps(JSON.stringify([
+    { id: 'legacy', origins: ['https://legacy.example.org'] },
+    { id: 'disabled', origins: ['https://disabled.example.org'], multiple: false },
+    { id: 'pecule', origins: ['https://pecule.example.org'], multiple: true }
+  ]), true);
+  assert.equal(apps.multipleApps.has('legacy'), false);
+  assert.equal(apps.multipleApps.has('disabled'), false);
+  assert.equal(apps.multipleApps.has('pecule'), true);
+  for (const invalid of ['true', null, 1]) {
+    assert.throws(() => parseClientApps(JSON.stringify([
+      { id: 'pecule', origins: ['https://pecule.example.org'], multiple: invalid }
+    ]), true), /multiple.*booléen/);
+  }
+});

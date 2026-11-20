@@ -22,6 +22,9 @@ export function createRepositories(db, clock = () => Date.now()) {
       },
       findById(userId) {
         return db.prepare('SELECT id, google_sub AS googleSub, email, display_name AS name, picture_url AS picture FROM users WHERE id = ?').get(userId);
+      },
+      findByGoogleSub(sub) {
+        return db.prepare('SELECT id, google_sub AS googleSub, email, display_name AS name, picture_url AS picture FROM users WHERE google_sub = ?').get(sub);
       }
     },
     sessions: {

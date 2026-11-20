@@ -7,12 +7,13 @@ function registerRoutes(overrides = {}) {
   const routes = new Map();
   const app = { get(path, handler) { routes.set(path, handler); } };
   const repo = { statistics: { overview: () => ({ totalUsers: 12, activeUsers: 3, connectedDrives: 4 }) } };
-  const clientApps = { apps: new Map([
-    ['todo', new Set(['https://todo.example', 'https://todo-alt.example'])],
-    ['budget', new Set(['https://budget.example'])],
-    ['demo', new Set(['https://api.example'])]
-  ]) };
-  registerHomeRoutes(app, { repo: overrides.repo ?? repo, clientApps: overrides.clientApps ?? clientApps });
+  const clientApps = {
+    apps: new Map([['pecule', new Set(['https://pecule.example.org'])],
+      ['batch', new Set(['https://batch.example.org'])], ['demo', new Set(['https://auth.example.org'])]]),
+    driveRequiredApps: new Set(['pecule']),
+    multipleApps: new Set(['pecule'])
+  };
+  registerHomeRoutes(app, { repo: overrides.repo ?? repo, clientApps });
   return routes;
 }
 
@@ -51,24 +52,34 @@ test('La page accueil est servie par Node et présente le service sans script in
   }
 });
 
-test('La liste publique contient les identifiants et toutes leurs origines, sans la démo', async () => {
-  const routes = registerRoutes({
-    repo: { statistics: { overview: () => { throw new Error('SQLite indisponible'); } } }
-  });
-  const response = await routes.get('/api/public/applications')({}, reply());
-  assert.equal(response.headers['cache-control'], 'no-store');
-  assert.deepEqual(response.body, {
-    applications: [
-      { id: 'todo', origins: ['https://todo.example', 'https://todo-alt.example'] },
-      { id: 'budget', origins: ['https://budget.example'] }
-    ]
-  });
+test('La liste des interfaces présente les routes fonctionnelles et leurs méthodes', () => {
+  const html = registerRoutes().get('/')({}, reply()).body.toString('utf8');
+  const endpoints = [...html.matchAll(/<div class="endpoint-row"><span class="method(?: write)?">(\w+)<\/span><code>([^<]+)<\/code>/g)]
+    .map(([, method, path]) => `${method} ${path}`);
+  assert.deepEqual(endpoints, [
+    'GET /health', 'GET /api/public/status', 'GET /api/public/applications',
+    'GET /api/session', 'POST /api/logout', 'POST /api/drive/disconnect',
+    'GET /auth/google/start', 'GET /auth/google/callback',
+    'GET /auth/drive/start', 'GET /auth/drive/callback',
+    'GET /api/sync/:appId', 'PUT /api/sync/:appId',
+    'GET /api/sync/:appId/files', 'GET /api/sync/:appId/files/:name',
+    'PUT /api/sync/:appId/files/:name', 'PATCH /api/sync/:appId/files/:name',
+    'DELETE /api/sync/:appId/files/:name?version=N',
+    'GET /demo', 'GET /demo/login', 'GET /demo/drive',
+    'POST /api/demo/text-file', 'POST /api/home/applications/:appId/file-count'
+  ]);
+  assert.match(html, /multiple: true/);
 });
 
-test('La liste publique peut être vide lorsqu’il ne reste que la démo', async () => {
-  const clientApps = { apps: new Map([['demo', new Set(['https://api.example'])]]) };
-  const response = await registerRoutes({ clientApps }).get('/api/public/applications')({}, reply());
-  assert.deepEqual(response.body, { applications: [] });
+test('Les applications publiques exposent uniquement leur identifiant et leurs options', async () => {
+  const routes = registerRoutes();
+  const response = await routes.get('/api/public/applications')({}, reply());
+  assert.equal(response.headers['cache-control'], 'no-store');
+  assert.deepEqual(response.body, { applications: [
+    { id: 'pecule', requiresDrive: true, multiple: true },
+    { id: 'batch', requiresDrive: false, multiple: false }
+  ] });
+  assert.doesNotMatch(JSON.stringify(response.body), /example\.org|demo|email|token/);
 });
 
 test('Le statut public ne contient que les compteurs agrégés et une santé locale', async () => {

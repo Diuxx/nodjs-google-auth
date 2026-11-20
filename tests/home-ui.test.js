@@ -1,67 +1,70 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import vm from 'node:vm';
+import { runInNewContext } from 'node:vm';
 
-const script = readFileSync(new URL('../src/http/home/home.js', import.meta.url), 'utf8');
-
-function createElement() {
-  return {
-    textContent: '',
-    children: [],
-    classList: { toggle() {} },
-    setAttribute() {},
-    addEventListener(_type, listener) { this.listener = listener; },
-    append(...children) { this.children.push(...children); },
-    replaceChildren(...children) { this.children = children; }
-  };
+class Element {
+  constructor() {
+    this.textContent = '';
+    this.children = [];
+    this.handlers = {};
+    this.disabled = false;
+    this.classList = { toggle() {} };
+  }
+  append(child) { this.children.push(child); }
+  replaceChildren(...children) { this.children = children; }
+  setAttribute(name, value) { this[name] = value; }
+  addEventListener(name, handler) { this.handlers[name] = handler; }
 }
 
-async function loadPage(applicationsResponse) {
+test('La page charge les options publiques puis compte seulement au clic', async () => {
   const elements = new Map();
+  const calls = [];
   const document = {
     querySelector(selector) {
-      if (!elements.has(selector)) elements.set(selector, createElement());
+      if (!elements.has(selector)) elements.set(selector, new Element());
       return elements.get(selector);
     },
-    createElement
+    createElement() { return new Element(); }
   };
-  const fetch = async url => url === '/api/public/applications' ? applicationsResponse : {
-    ok: true,
-    json: async () => ({
-      status: 'ok', checks: { api: 'ok', sqlite: 'ok' },
-      statistics: { totalUsers: 1, activeUsers: 1, connectedDrives: 0, registeredApplications: 1 }
-    })
+  const fetch = async (url, options) => {
+    calls.push({ url, options });
+    if (url === '/api/public/status') {
+      return { ok: true, json: async () => ({
+        status: 'ok', checks: { api: 'ok', sqlite: 'ok' },
+        statistics: { totalUsers: 1, activeUsers: 1, connectedDrives: 1, registeredApplications: 2 }
+      }) };
+    }
+    if (url === '/api/public/applications') {
+      return { ok: true, json: async () => ({ applications: [
+        { id: 'pecule', requiresDrive: true, multiple: true },
+        { id: 'batch', requiresDrive: false, multiple: false }
+      ] }) };
+    }
+    if (url.includes('/pecule/')) {
+      return { ok: true, json: async () => ({ appId: 'pecule', legacy: 1, named: 2, total: 3 }) };
+    }
+    return { ok: false, json: async () => ({ error: { code: 'DRIVE_NOT_CONNECTED' } }) };
   };
-  vm.runInNewContext(script, { document, fetch, Intl, Date });
+  const script = readFileSync(new URL('../src/http/home/home.js', import.meta.url), 'utf8');
+  runInNewContext(script, { document, fetch, Intl, Date });
   await new Promise(resolve => setImmediate(resolve));
-  return elements;
-}
 
-test('La liste affiche chaque identifiant et toutes ses origines comme texte', async () => {
-  const elements = await loadPage({
-    ok: true,
-    json: async () => ({ applications: [{ id: 'todo', origins: ['https://a.example', 'https://b.example'] }] })
-  });
-  const list = elements.get('#applications-list');
-  assert.equal(list.children.length, 1);
-  assert.equal(list.children[0].children[0].textContent, 'todo');
-  assert.deepEqual(list.children[0].children[1].children.map(item => item.textContent),
-    ['https://a.example', 'https://b.example']);
-  assert.equal(elements.get('#applications-status').textContent, '');
-});
+  const rows = elements.get('#applications-list').children;
+  assert.deepEqual(rows.map(row => row.children.map(child => child.textContent)), [
+    ['pecule', 'Drive requis à la connexion', 'Multi-fichiers', 'Fichiers : non comptés'],
+    ['batch', 'Drive facultatif', 'Fichier unique', 'Fichiers : non comptés']
+  ]);
+  assert.equal(calls.filter(call => call.options?.method === 'POST').length, 0);
 
-test('Une liste vide ou invalide est signalée sans altérer le statut du service', async () => {
-  const empty = await loadPage({ ok: true, json: async () => ({ applications: [] }) });
-  assert.equal(empty.get('#applications-status').textContent, 'Aucune application configurée.');
+  await elements.get('#count-files').handlers.click();
+  assert.equal(rows[0].children[3].textContent, 'Fichiers : 3');
+  assert.equal(rows[1].children[3].textContent, 'Drive non connecté');
+  assert.equal(elements.get('#applications-message').textContent, 'Certains comptages sont indisponibles.');
+  assert.equal(calls.filter(call => call.options?.method === 'POST').length, 2);
 
-  for (const response of [
-    { ok: false, status: 500 },
-    { ok: true, json: async () => ({ applications: [{ id: 'todo', origins: 'invalid' }] }) }
-  ]) {
-    const elements = await loadPage(response);
-    assert.equal(elements.get('#applications-status').textContent, 'Impossible de charger les applications autorisées.');
-    assert.equal(elements.get('#applications-list').children.length, 0);
-    assert.equal(elements.get('#service-status').textContent, 'API opérationnelle');
-  }
+  await elements.get('#refresh').handlers.click();
+  assert.equal(elements.get('#applications-list').children.length, 2);
+  assert.equal(calls.filter(call => call.url === '/api/public/applications').length, 2);
+  assert.equal(calls.filter(call => call.options?.method === 'POST').length, 2);
 });

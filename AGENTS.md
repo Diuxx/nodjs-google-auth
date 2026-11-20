@@ -1,132 +1,168 @@
+
 # General Programming Principles
 
-These principles apply to all programming tasks, regardless of language, framework, or version.
+Apply these principles to all development tasks, regardless of language, framework, or architecture.
 
-They complement task requirements and repository-specific conventions. When instructions conflict, follow the most specific applicable requirements.
+Follow project conventions and the most specific applicable instructions.
 
-For Node.js backend work, also read and follow [docs/backend-node.md](docs/backend-node.md).
+## 1. Understand and Preserve
 
-For database design, migrations, and persistence changes,
-also read and follow [docs/database.md](docs/database.md).
+- Inspect relevant code, dependencies, contracts, and conventions before making changes.
+- Reuse existing mechanisms and respect the established architecture.
+- Preserve existing behavior and compatibility unless explicitly requested otherwise.
+- Keep changes focused. Avoid unrelated refactoring or unnecessary dependencies.
+- Ask for clarification only when ambiguity materially affects correctness or safety. Otherwise, state reasonable assumptions.
 
-## 1. Understand Before Changing
+## 2. Write Maintainable Code
 
-- Understand the expected behavior, constraints, and existing implementation before modifying code.
-- Inspect relevant files, dependencies, interfaces, and established patterns.
-- Reuse existing mechanisms when appropriate instead of creating parallel implementations.
-- Preserve existing behavior, public contracts, and data compatibility unless explicitly requested otherwise.
-- Identify potential side effects and affected components before making changes.
-- Ask for clarification when an ambiguity materially affects correctness or safety. Otherwise, proceed with reasonable, explicit assumptions.
+Prioritize human readability over cleverness or excessive abstraction.
 
-## 2. Design for Maintainability
+- Prefer simple, explicit solutions with precise names and clear responsibilities.
+- Separate concerns when it improves clarity and maintainability.
+- Keep dependencies and side effects visible.
+- Extract complex rules, conditions, and processing steps into well-named functions, even when used once.
+- Keep functions at a coherent abstraction level without excessive fragmentation.
+- Reduce nesting with guard clauses and clear control flow.
+- Keep related logic together for easier navigation.
+- Favor composition over inheritance when appropriate.
+- Apply SOLID, KISS, DRY, and YAGNI pragmatically.
+- Introduce abstractions and design patterns only to solve concrete problems.
 
-Prioritize **human readability and maintainability** over cleverness, compactness, or abstraction.
+## 3. Reliability and Security
 
-- Prefer the simplest solution that fully satisfies the requirement.
-- Use precise, descriptive names that communicate intent.
-- Give functions, classes, and modules clear, coherent responsibilities.
-- Separate business rules, orchestration, input/output, and data access when their responsibilities justify it.
-- Keep dependencies and side effects explicit.
-- Favor composition over inheritance when practical.
-- Reduce unnecessary nesting using guard clauses and clear control flow.
-- Keep related logic together to make navigation and understanding easier.
+- Validate inputs and enforce applicable invariants.
+- Handle errors explicitly without hiding failures or losing useful context.
+- Consider edge cases, invalid states, and partial failures.
+- Address concurrency, retries, and idempotency when relevant.
+- Treat external input as untrusted.
+- Apply least privilege and appropriate access controls.
+- Never expose secrets or sensitive information.
+- Protect data integrity and avoid unsafe destructive operations.
 
-### Manage Complexity
+## 4. Comments and Documentation
 
-- Extract complex conditions, business rules, or processing steps into clearly named functions when doing so improves comprehension, even if they are used only once.
-- Each function should operate at a coherent level of abstraction.
-- Avoid functions that mix unrelated responsibilities.
-- Avoid excessive fragmentation into trivial functions that make code harder to follow.
-- Prefer explicit, understandable logic over clever shortcuts or dense expressions.
-- Keep abstractions proportional to the actual complexity of the problem.
+- Prefer self-explanatory code over unnecessary comments.
+- Explain WHY, not WHAT: document non-obvious decisions, constraints, and trade-offs.
+- Document complex public interfaces when their contracts or side effects are unclear.
+- Avoid redundant comments and excessive documentation.
+- Keep documentation consistent with actual behavior.
 
-Apply **SOLID, KISS, DRY, and YAGNI pragmatically**, not dogmatically.
+## 5. Agent Workflow
 
-Design patterns should solve concrete problems, never introduce complexity for its own sake.
+1. **Inspect** — Understand the relevant implementation and conventions.
+2. **Plan** — Identify the smallest coherent change and its impacts.
+3. **Implement** — Write readable code respecting existing patterns.
+4. **Verify** — Follow the project's testing and verification instructions.
+5. **Simplify** — Remove unnecessary complexity, duplication, and abstractions.
+6. **Report** — Summarize changes, decisions, performed checks, and limitations.
 
-## 3. Respect Existing Architecture
+Keep planning and reporting proportional to task complexity.
 
-- Follow the repository's established architecture, naming conventions, and coding style.
-- Do not introduce new architectural layers, patterns, or dependencies without a concrete benefit.
-- Keep changes focused on the requested functionality.
-- Avoid unrelated refactoring or formatting changes.
-- Reuse shared logic only when responsibilities and behavior genuinely align.
-- Maintain clear boundaries between components and modules.
-- Prefer incremental improvements over unnecessary rewrites.
+## Core Rule
 
-When existing code is problematic, improve the parts necessary for the task without expanding its scope unnecessarily.
+Deliver the simplest correct, secure, and maintainable solution.
 
-## 4. Handle Errors and Edge Cases
+Optimize for human understanding, not code brevity or sophistication.
 
-- Validate inputs at system boundaries and enforce business invariants where they belong.
-- Handle errors explicitly at the appropriate abstraction level.
-- Never silently ignore failures or replace errors with misleading success values.
-- Avoid overly broad exception handling.
-- Preserve useful error context while preventing sensitive information leakage.
-- Consider missing data, invalid states, partial failures, and unavailable dependencies.
-- Make retry behavior, idempotency, and concurrency handling explicit when relevant.
-- Protect data integrity during updates, migrations, and destructive operations.
+## Documentation
 
-## 5. Security and Data Integrity
+All project documentation MUST be written in **English**.
 
-- Treat all external input as untrusted.
-- Apply least privilege and enforce authorization at the resource boundary.
-- Never expose secrets, credentials, tokens, or sensitive information in source code, logs, or error responses.
-- Use safe defaults and established security mechanisms.
-- Preserve backward compatibility for persisted data unless migration is explicitly required.
-- Make data migrations intentional, testable, and recoverable where practical.
-- Avoid destructive operations without appropriate safeguards.
+The expected project documentation consists of:
 
-## 6. Comments and Documentation
+- `AGENTS.md` and `README.md` at the project root.
+- `docs/PROJECT.md`, `docs/RESUME.md`, and `docs/USAGE.md` in `docs/`.
 
-Code should explain **what it does** through its structure and naming.
+If a required file is missing, create it and initialize it with verified information
+from the project. Do not invent features, commands, or architectural decisions.
+If other project Markdown files exist or the layout otherwise differs from this
+structure, ask the user whether to update it before reorganizing, merging, moving,
+or deleting existing files. Creating a missing required file does not require
+permission.
 
-Comments should explain **why a decision was made**, especially when the reason is not obvious.
+### README.md
 
-- Avoid comments that merely restate the implementation.
-- Document non-obvious behavior, constraints, trade-offs, and compatibility requirements.
-- Add a concise explanation at a complex function when its purpose, algorithm, invariants, side effects, or important assumptions are not clear from its name and implementation.
-- For a complex public or reusable function, document its contract: expected inputs, result, relevant side effects, and meaningful failure cases, using the language's established documentation style.
-- Prefer improving names or simplifying the function when that would make a comment unnecessary.
-- Keep comments accurate as the implementation changes; do not add comments to every function by default.
-- Keep documentation consistent with the actual implementation.
-- Update relevant documentation when APIs, behavior, configuration, or usage changes.
-- Avoid excessive documentation for self-explanatory code.
+Every project must maintain a short, clear, and welcoming `README.md` at its root.
 
-## 7. Testing and Verification
+The README is a **project overview, not a technical manual**.
 
-- Test observable behavior rather than implementation details.
-- Cover expected behavior, important boundaries, and meaningful failure scenarios.
-- Prefer deterministic, isolated, and reproducible tests.
-- Use existing testing tools and conventions.
-- Add tests proportionate to the complexity and risk of the change.
-- Avoid unnecessary mocks and tests tightly coupled to internal implementation.
-- Run relevant existing tests, checks, and builds whenever possible.
-- Review changes for regressions, unintended side effects, and compatibility issues.
-- Never claim a verification was performed unless it actually was.
+It should include:
 
-## 8. Agent Workflow
+1. **Introduction** — Project name, purpose, and a brief description.
+2. **Features** — Main capabilities, summarized in a few bullet points.
+3. **Quick Start** — Minimal commands to get started, only when relevant.
+4. **Documentation** — A link to [`docs/USAGE.md`](docs/USAGE.md).
 
-For each development task:
+### docs/USAGE.md
 
-1. **Inspect** — Understand the relevant code, architecture, conventions, and tests.
-2. **Plan** — Identify the smallest coherent change and its potential impacts.
-3. **Implement** — Write readable, focused code that respects existing patterns.
-4. **Verify** — Run relevant checks and test important behavior and failure cases.
-5. **Simplify** — Review the implementation for unnecessary complexity, duplication, and abstractions.
-6. **Report** — Summarize the changes, technical decisions, checks performed, and remaining limitations.
+Keep detailed technical documentation in `docs/USAGE.md`, including when applicable:
 
-Do not generate extensive plans or explanations for trivial changes.
+- Prerequisites and installation.
+- Configuration and environment variables.
+- Usage examples and integration instructions.
+- Development, build, and testing commands.
+- Architecture details necessary for users.
+- Troubleshooting and known limitations.
 
-## 9. Delivery Standards
+### Rules
 
-Before considering a task complete:
+- Write all documentation in English.
+- Keep the README concise and focused on what the project offers.
+- Avoid implementation details, architecture breakdowns, and long instructions in the README.
+- Do not list internal Markdown files or explain the documentation structure in the README.
+- Link to `docs/USAGE.md` for detailed instructions.
+- Avoid duplication between README and USAGE.
+- Document only implemented features and verified commands.
+- Keep documentation synchronized with actual project behavior.
+- Use clear headings, simple language, and executable examples.
+- When documenting architecture, prefer concise ASCII diagrams in fenced code blocks
+  when they make components, structure, or data flows easier to understand.
+- Create or update `docs/USAGE.md` when technical instructions change.
+- Omit irrelevant sections rather than adding empty placeholders.
 
-- Ensure the implementation satisfies the requested behavior.
-- Remove unused code, unnecessary abstractions, and debugging artifacts.
-- Check that naming, responsibilities, and control flow remain understandable.
-- Verify that existing functionality and contracts are preserved where required.
-- Keep the final diff focused and reviewable.
-- Clearly distinguish verified behavior from assumptions or untested functionality.
+## Documentation Policy
 
-**The goal is not to produce the most sophisticated code, but the simplest maintainable implementation that correctly solves the problem.**
+Markdown files (`*.md`) are read-only by default.
+
+### Allowed Modifications
+
+The following files may be created or updated without explicit permission:
+
+- `README.md` — Keep the project description, technologies, setup, execution, and testing commands accurate.
+- `docs/RESUME.md` — Maintain a concise technical summary of the project's architecture for future development sessions.
+- `docs/USAGE.md` — Maintain detailed, verified usage and development instructions.
+
+Create `AGENTS.md` or `docs/PROJECT.md` when missing, based on verified project
+information. Once they exist, treat them as read-only unless the user explicitly
+requests changes.
+
+### Architecture Summary
+
+As the project evolves, maintain a concise summary containing:
+
+- Project purpose and main responsibilities.
+- High-level architecture and module structure.
+- Main technologies and dependencies.
+- Important components and their interactions.
+- Key technical decisions and conventions.
+- Essential entry points and data flows.
+
+Keep this file short, structured, and easy for an AI agent to understand when resuming development with no prior context.
+
+Update it only when meaningful architectural changes occur. Avoid implementation details that can be easily rediscovered in the code.
+
+### Restrictions
+
+- Never create, modify, rename, or delete other Markdown files unless explicitly requested.
+- Treat all other Markdown documentation as read-only instructions.
+- Do not automatically rewrite or reformat documentation.
+- Keep allowed documentation updates minimal and relevant to actual changes.
+- Never invent undocumented features or architectural decisions.
+
+## This Project
+
+Read and follow [docs/PROJECT.md](docs/PROJECT.md) before making changes.
+Treat PROJECT.md as the reference for project-specific architecture, technologies, conventions, and constraints.
+Follow relevant documentation referenced by PROJECT.md.
+Prefer project-specific instructions when they are more precise than these general principles.
+Do not introduce changes that conflict with the project's established conventions without explicit justification.

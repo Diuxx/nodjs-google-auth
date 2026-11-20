@@ -84,14 +84,16 @@
       </section>
 
       <section class="detail-panel applications-panel" aria-labelledby="applications-title">
-        <div class="section-heading">
-          <h2 id="applications-title">Applications autorisées</h2>
-          <span class="micro-label">CLIENTS CONFIGURÉS</span>
+        <div class="section-heading applications-heading">
+          <div>
+            <h2 id="applications-title">Applications autorisées</h2>
+            <p class="applications-help">Configuration publique ; le nombre de fichiers concerne uniquement votre compte Google connecté.</p>
+          </div>
+          <button id="count-files" class="count-button" type="button" disabled>Compter mes fichiers</button>
         </div>
-        <p class="applications-intro">Identifiants et origines autorisés, hors démo intégrée.</p>
-        <p id="applications-status" class="applications-status" role="status">Chargement des applications…</p>
-        <ul id="applications-list" class="applications-list" aria-label="Applications autorisées"></ul>
-        <noscript><p class="applications-status">Active JavaScript pour afficher les applications autorisées.</p></noscript>
+        <p id="applications-message" class="applications-message" role="status">Chargement des applications…</p>
+        <ul id="applications-list" class="applications-list" aria-label="Applications configurées"></ul>
+        <p class="applications-help">Le comptage inclut les fichiers JSON classiques et multiples ; il lit Drive sans modifier les données.</p>
       </section>
 
       <div class="detail-grid">
@@ -127,11 +129,45 @@
             <h2 id="api-title">Interfaces</h2>
             <span class="micro-label">HTTP API</span>
           </div>
-          <div class="endpoint-row"><span class="method">GET</span><code>/health</code><a href="/health" aria-label="Ouvrir le contrôle de santé">↗</a></div>
-          <div class="endpoint-row"><span class="method">GET</span><code>/api/public/status</code><a href="/api/public/status" aria-label="Ouvrir les statistiques publiques">↗</a></div>
-          <div class="endpoint-row"><span class="method">GET</span><code>/api/session</code><a href="/api/session" aria-label="Ouvrir la session">↗</a></div>
-          <div class="endpoint-row"><span class="method">GET</span><code>/api/sync/:appId</code><span class="endpoint-note">Auth.</span></div>
-          <div class="endpoint-row"><span class="method write">PUT</span><code>/api/sync/:appId</code><span class="endpoint-note">Auth.</span></div>
+          <p class="endpoint-help">Routes fonctionnelles, hors ressources statiques. Les requêtes protégées exigent une session et/ou une origine autorisée.</p>
+          <details class="endpoint-group" open>
+            <summary>Service et session</summary>
+            <div class="endpoint-row"><span class="method">GET</span><code>/health</code><a href="/health" aria-label="Ouvrir le contrôle de santé">↗</a></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/public/status</code><a href="/api/public/status" aria-label="Ouvrir les statistiques publiques">↗</a></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/public/applications</code><a href="/api/public/applications" aria-label="Ouvrir les applications publiques">↗</a></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/session</code><a href="/api/session" aria-label="Ouvrir la session">↗</a></div>
+            <div class="endpoint-row"><span class="method write">POST</span><code>/api/logout</code><span class="endpoint-note">Origine</span></div>
+            <div class="endpoint-row"><span class="method write">POST</span><code>/api/drive/disconnect</code><span class="endpoint-note">Session</span></div>
+          </details>
+          <details class="endpoint-group">
+            <summary>Authentification Google et Drive</summary>
+            <p class="endpoint-help">Les démarrages nécessitent les paramètres <code>app</code> et <code>return_to</code>. Les callbacks sont réservés au retour Google.</p>
+            <div class="endpoint-row"><span class="method">GET</span><code>/auth/google/start</code><span class="endpoint-note">Connexion</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/auth/google/callback</code><span class="endpoint-note">Google</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/auth/drive/start</code><span class="endpoint-note">Session</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/auth/drive/callback</code><span class="endpoint-note">Google</span></div>
+          </details>
+          <details class="endpoint-group" open>
+            <summary>Synchronisation Drive</summary>
+            <p class="endpoint-help">Session, Drive connecté et origine de l’application requis. Les routes multi-fichiers exigent aussi <code>multiple: true</code>.</p>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/sync/:appId</code><span class="endpoint-note">Lecture</span></div>
+            <div class="endpoint-row"><span class="method write">PUT</span><code>/api/sync/:appId</code><span class="endpoint-note">Écriture</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/sync/:appId/files</code><span class="endpoint-note">Multi</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/sync/:appId/files/:name</code><span class="endpoint-note">Multi</span></div>
+            <div class="endpoint-row"><span class="method write">PUT</span><code>/api/sync/:appId/files/:name</code><span class="endpoint-note">Multi</span></div>
+            <div class="endpoint-row"><span class="method write">PATCH</span><code>/api/sync/:appId/files/:name</code><span class="endpoint-note">Renommer</span></div>
+            <div class="endpoint-row"><span class="method write">DELETE</span><code>/api/sync/:appId/files/:name?version=N</code><span class="endpoint-note">Supprimer</span></div>
+          </details>
+          <details class="endpoint-group">
+            <summary>Démo et tableau de bord</summary>
+            <p class="endpoint-help">Le comptage et la création TXT exigent une session et l’origine du service.</p>
+            <div class="endpoint-row"><span class="method">GET</span><code>/demo</code><a href="/demo" aria-label="Ouvrir la démonstration">↗</a></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/demo/login</code><span class="endpoint-note">Démo</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/demo/drive</code><span class="endpoint-note">Session</span></div>
+            <div class="endpoint-row"><span class="method write">POST</span><code>/api/demo/text-file</code><span class="endpoint-note">Démo</span></div>
+            <div class="endpoint-row"><span class="method write">POST</span><code>/api/home/applications/:appId/file-count</code><span class="endpoint-note">Privé</span></div>
+          </details>
+          <p class="endpoint-help">Les requêtes <code>OPTIONS</code> de précontrôle CORS sont prises en charge pour les origines autorisées.</p>
           <div class="stack"><span>STACK</span> Node.js <b>·</b> Fastify <b>·</b> SQLite <b>·</b> Google APIs <b>·</b> Podman</div>
         </section>
       </div>

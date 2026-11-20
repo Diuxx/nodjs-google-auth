@@ -6,15 +6,17 @@ const ui = {
   activeUsers: document.querySelector('#active-users'),
   connectedDrives: document.querySelector('#connected-drives'),
   registeredApps: document.querySelector('#registered-apps'),
-  applicationsStatus: document.querySelector('#applications-status'),
-  applicationsList: document.querySelector('#applications-list'),
   lastCheck: document.querySelector('#last-check'),
-  refresh: document.querySelector('#refresh')
+  refresh: document.querySelector('#refresh'),
+  applicationsList: document.querySelector('#applications-list'),
+  applicationsMessage: document.querySelector('#applications-message'),
+  countFiles: document.querySelector('#count-files')
 };
 
 const numberFormatter = new Intl.NumberFormat('fr-FR');
 const timeFormatter = new Intl.DateTimeFormat('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const counters = [ui.totalUsers, ui.activeUsers, ui.connectedDrives, ui.registeredApps];
+let applications = [];
 
 function showStatus(status, description) {
   ui.indicator.classList.toggle('is-error', status === 'error');
@@ -44,45 +46,6 @@ function displayStatistics(statistics) {
   });
 }
 
-async function refreshApplications() {
-  ui.applicationsStatus.textContent = 'Chargement des applications…';
-  ui.applicationsList.replaceChildren();
-
-  try {
-    const response = await fetch('/api/public/applications', { cache: 'no-store' });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const result = await response.json();
-    if (!Array.isArray(result.applications) || !result.applications.every(application =>
-      application && typeof application.id === 'string' &&
-      Array.isArray(application.origins) && application.origins.length > 0 &&
-      application.origins.every(origin => typeof origin === 'string'))) {
-      throw new Error('Liste des applications invalide');
-    }
-
-    for (const application of result.applications) {
-      const row = document.createElement('li');
-      row.className = 'application-row';
-      const id = document.createElement('strong');
-      id.className = 'application-id';
-      id.textContent = application.id;
-      const origins = document.createElement('ul');
-      origins.className = 'application-origins';
-      origins.setAttribute('aria-label', `Origines autorisées pour ${application.id}`);
-      for (const origin of application.origins) {
-        const item = document.createElement('li');
-        item.textContent = origin;
-        origins.append(item);
-      }
-      row.append(id, origins);
-      ui.applicationsList.append(row);
-    }
-    ui.applicationsStatus.textContent = result.applications.length ? '' : 'Aucune application configurée.';
-  } catch {
-    ui.applicationsList.replaceChildren();
-    ui.applicationsStatus.textContent = 'Impossible de charger les applications autorisées.';
-  }
-}
-
 async function refreshOverview() {
   showStatus('loading', 'Contrôle de l’API et de SQLite');
 
@@ -108,11 +71,93 @@ async function refreshOverview() {
 async function refreshPage() {
   ui.refresh.disabled = true;
   try {
-    await Promise.all([refreshOverview(), refreshApplications()]);
+    await Promise.all([refreshOverview(), loadApplications()]);
   } finally {
     ui.refresh.disabled = false;
   }
 }
 
+function addLabel(row, text, className) {
+  const label = document.createElement('span');
+  label.className = className;
+  label.textContent = text;
+  row.append(label);
+  return label;
+}
+
+async function loadApplications() {
+  applications = [];
+  ui.applicationsList.replaceChildren();
+  ui.countFiles.disabled = true;
+  try {
+    const response = await fetch('/api/public/applications', { cache: 'no-store' });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const result = await response.json();
+    if (!Array.isArray(result.applications) || !result.applications.every(app =>
+      app && typeof app.id === 'string' && typeof app.requiresDrive === 'boolean' && typeof app.multiple === 'boolean')) {
+      throw new Error('Configuration des applications invalide');
+    }
+    applications = result.applications.map(app => {
+      const row = document.createElement('li');
+      row.className = 'application-row';
+      addLabel(row, app.id, 'application-name');
+      addLabel(row, app.requiresDrive ? 'Drive requis à la connexion' : 'Drive facultatif', 'chip enabled');
+      addLabel(row, app.multiple ? 'Multi-fichiers' : 'Fichier unique', 'chip planned');
+      const count = addLabel(row, 'Fichiers : non comptés', 'application-count');
+      count.setAttribute('role', 'status');
+      ui.applicationsList.append(row);
+      return { id: app.id, count };
+    });
+    ui.applicationsMessage.textContent = applications.length
+      ? 'Connectez-vous, puis lancez le comptage pour votre compte.'
+      : 'Aucune application configurée.';
+    ui.countFiles.disabled = applications.length === 0;
+  } catch {
+    ui.applicationsMessage.textContent = 'Impossible de charger les applications.';
+    ui.countFiles.disabled = true;
+  }
+}
+
+async function countApplicationFiles() {
+  ui.countFiles.disabled = true;
+  let hasError = false;
+  let needsLogin = false;
+  for (const app of applications) {
+    app.count.textContent = 'Comptage…';
+    try {
+      const response = await fetch(`/api/home/applications/${encodeURIComponent(app.id)}/file-count`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}', cache: 'no-store'
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        hasError = true;
+        if (result.error?.code === 'UNAUTHENTICATED') {
+          needsLogin = true;
+          app.count.textContent = 'Connexion requise';
+        } else if (result.error?.code === 'DRIVE_NOT_CONNECTED') {
+          app.count.textContent = 'Drive non connecté';
+        } else if (['DRIVE_RECONNECT_REQUIRED', 'DRIVE_ACCESS_DENIED'].includes(result.error?.code)) {
+          app.count.textContent = 'Drive à réautoriser';
+        } else {
+          app.count.textContent = 'Comptage indisponible';
+        }
+        continue;
+      }
+      if (result.appId !== app.id || !Number.isSafeInteger(result.total) || result.total < 0) {
+        throw new Error('Comptage invalide');
+      }
+      app.count.textContent = `Fichiers : ${numberFormatter.format(result.total)}`;
+    } catch {
+      hasError = true;
+      app.count.textContent = 'Comptage indisponible';
+    }
+  }
+  ui.applicationsMessage.textContent = needsLogin
+    ? 'Connectez-vous, puis lancez le comptage pour votre compte.'
+    : hasError ? 'Certains comptages sont indisponibles.' : 'Comptage terminé pour votre compte.';
+  ui.countFiles.disabled = false;
+}
+
 ui.refresh.addEventListener('click', refreshPage);
+ui.countFiles.addEventListener('click', countApplicationFiles);
 refreshPage();
