@@ -115,6 +115,8 @@ Keep detailed technical documentation in `docs/USAGE.md`, including when applica
 - Document only implemented features and verified commands.
 - Keep documentation synchronized with actual project behavior.
 - Use clear headings, simple language, and executable examples.
+- When documenting architecture, prefer concise ASCII diagrams in fenced code blocks
+  when they make components, structure, or data flows easier to understand.
 - Create or update `docs/USAGE.md` when technical instructions change.
 - Omit irrelevant sections rather than adding empty placeholders.
 
