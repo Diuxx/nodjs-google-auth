@@ -12,6 +12,7 @@ class Element {
     this.classList = { toggle() {} };
   }
   append(child) { this.children.push(child); }
+  replaceChildren(...children) { this.children = children; }
   setAttribute(name, value) { this[name] = value; }
   addEventListener(name, handler) { this.handlers[name] = handler; }
 }
@@ -60,5 +61,10 @@ test('La page charge les options publiques puis compte seulement au clic', async
   assert.equal(rows[0].children[3].textContent, 'Fichiers : 3');
   assert.equal(rows[1].children[3].textContent, 'Drive non connecté');
   assert.equal(elements.get('#applications-message').textContent, 'Certains comptages sont indisponibles.');
+  assert.equal(calls.filter(call => call.options?.method === 'POST').length, 2);
+
+  await elements.get('#refresh').handlers.click();
+  assert.equal(elements.get('#applications-list').children.length, 2);
+  assert.equal(calls.filter(call => call.url === '/api/public/applications').length, 2);
   assert.equal(calls.filter(call => call.options?.method === 'POST').length, 2);
 });

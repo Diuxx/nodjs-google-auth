@@ -7,7 +7,7 @@
 - **Synchronisation** : chaque utilisateur sauvegarde un JSON par application dans **son propre Google Drive**, dans l'espace privé `appDataFolder`.
 - **Stockage local du serveur** : SQLite (identités, sessions, états OAuth temporaires, jetons Drive chiffrés, index de fichiers).
 - **Exploitation** : une instance Node.js derrière Nginx, Podman, volume persistant, limites de taille, gestion des conflits par version.
-- **Accueil intégré** : `/` présente le service, son état local et les compteurs anonymisés provenant de SQLite.
+- **Accueil intégré** : `/` présente le service, son état local, les compteurs anonymisés et les applications autorisées.
 - **Page de test intégrée** : `/demo`, connexion Google, consentement Drive et création d’un vrai fichier `.txt` dans « Mon Drive », sans serveur frontend supplémentaire.
 
 For per-application Drive settings and Google Cloud setup, see [docs/USAGE.md](docs/USAGE.md).
@@ -42,7 +42,9 @@ Les valeurs ci-dessus sont **illustratives**. Les chiffres réellement affichés
 - **Comptes Drive connectés** : nombre de lignes `drive_credentials`. Cela signifie qu’un refresh token est sauvegardé, **pas** qu’il est encore valide chez Google.
 - **Applications configurées** : applications déclarées dans `CLIENT_APPS_JSON`, hors client interne `demo`.
 
-Le statut **« API opérationnelle »** confirme la réponse HTTP et une requête SQLite réussie. Il ne teste **ni le service OAuth de Google ni Google Drive**, et ne garantit donc pas leur disponibilité. En cas d’échec du statut, la page affiche « Statut indisponible », sans inventer des chiffres. Les compteurs sont publics et agrégés : **aucun e-mail, nom, identifiant Google ou jeton n’est transmis**. Comme ces valeurs sont visibles par tout visiteur, protège le service par un reverse proxy si tu souhaites garder même les totaux privés. Le bouton **Actualiser** relance la lecture ; aucune mise à jour automatique en arrière-plan.
+Le statut **« API opérationnelle »** confirme la réponse HTTP et une requête SQLite réussie. Il ne teste **ni le service OAuth de Google ni Google Drive**, et ne garantit donc pas leur disponibilité. En cas d’échec du statut, la page affiche « Statut indisponible », sans inventer des chiffres. Les compteurs sont publics et agrégés : **aucun e-mail, nom, identifiant Google ou jeton n’est transmis**.
+
+The public application list shows application IDs and Drive/multi-file settings, but not origins or credentials. The refresh button reloads the list and statistics; file counts are requested separately for the signed-in user.
 
 Aucune migration SQLite, nouvelle dépendance ou variable d’environnement n’est nécessaire : la page utilise les tables existantes.
 
@@ -129,6 +131,7 @@ npm test
 npm run dev
 ```
 
+- `npm run dev` ouvre un onglet sur `http://localhost:3000`, puis démarre le serveur en mode watch.
 - Accueil : http://localhost:3000/
 - Statut public et statistiques : http://localhost:3000/api/public/status
 - API : http://localhost:3000/health
@@ -336,6 +339,10 @@ Pour un nouvel outil, **déclarer un identifiant unique et son origine** dans `C
 | POST | `/api/drive/disconnect` | Révoque si possible et supprime le refresh token local, **sans supprimer les fichiers** |
 | GET | `/api/sync/:appId` | Lit le JSON du Drive de l'utilisateur |
 | PUT | `/api/sync/:appId` | Sauvegarde `{ "version": 0, "data": { ... } }` |
+
+### 6.1 Multiple JSON files
+
+See [docs/USAGE.md](docs/USAGE.md) for the versioned folder-based multi-file API.
 
 Exemple de requête de la page de démonstration :
 

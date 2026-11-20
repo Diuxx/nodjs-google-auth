@@ -47,7 +47,6 @@ function displayStatistics(statistics) {
 }
 
 async function refreshOverview() {
-  ui.refresh.disabled = true;
   showStatus('loading', 'Contrôle de l’API et de SQLite');
 
   try {
@@ -66,6 +65,14 @@ async function refreshOverview() {
     showStatus('error', 'Impossible de vérifier le service local');
   } finally {
     ui.lastCheck.textContent = timeFormatter.format(new Date());
+  }
+}
+
+async function refreshPage() {
+  ui.refresh.disabled = true;
+  try {
+    await Promise.all([refreshOverview(), loadApplications()]);
+  } finally {
     ui.refresh.disabled = false;
   }
 }
@@ -79,12 +86,15 @@ function addLabel(row, text, className) {
 }
 
 async function loadApplications() {
+  applications = [];
+  ui.applicationsList.replaceChildren();
+  ui.countFiles.disabled = true;
   try {
     const response = await fetch('/api/public/applications', { cache: 'no-store' });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const result = await response.json();
     if (!Array.isArray(result.applications) || !result.applications.every(app =>
-      typeof app.id === 'string' && typeof app.requiresDrive === 'boolean' && typeof app.multiple === 'boolean')) {
+      app && typeof app.id === 'string' && typeof app.requiresDrive === 'boolean' && typeof app.multiple === 'boolean')) {
       throw new Error('Configuration des applications invalide');
     }
     applications = result.applications.map(app => {
@@ -148,7 +158,6 @@ async function countApplicationFiles() {
   ui.countFiles.disabled = false;
 }
 
-ui.refresh.addEventListener('click', refreshOverview);
+ui.refresh.addEventListener('click', refreshPage);
 ui.countFiles.addEventListener('click', countApplicationFiles);
-refreshOverview();
-loadApplications();
+refreshPage();

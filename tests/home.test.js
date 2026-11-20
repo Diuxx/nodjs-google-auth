@@ -33,7 +33,13 @@ test('La page accueil est servie par Node et présente le service sans script in
   assert.match(page.headers['content-type'], /^text\/html/);
   const html = page.body.toString('utf8');
   assert.match(html, /Nicolabz Identity/);
-  assert.match(html, /Utilisateurs uniques/);
+  assert.match(html, /data-theme="light"/);
+  assert.match(html, /data-theme-toggle/);
+  assert.match(html, /\/theme\/theme\.css/);
+  assert.match(html, /\/theme\/theme\.js/);
+  assert.match(html, /UTILISATEURS UNIQUES/i);
+  assert.match(html, /Applications autorisées/);
+  assert.match(html, /id="applications-list"/);
   assert.match(html, /href="\/demo"/);
   assert.match(html, /src="\/home\/home\.js"/);
   assert.match(html, /href="\/home\/home\.css"/);
@@ -44,6 +50,25 @@ test('La page accueil est servie par Node et présente le service sans script in
     assert.match(asset.headers['content-type'], new RegExp(`^${expectedType}`));
     assert.ok(asset.body.length > 0);
   }
+});
+
+test('La liste des interfaces présente les routes fonctionnelles et leurs méthodes', () => {
+  const html = registerRoutes().get('/')({}, reply()).body.toString('utf8');
+  const endpoints = [...html.matchAll(/<div class="endpoint-row"><span class="method(?: write)?">(\w+)<\/span><code>([^<]+)<\/code>/g)]
+    .map(([, method, path]) => `${method} ${path}`);
+  assert.deepEqual(endpoints, [
+    'GET /health', 'GET /api/public/status', 'GET /api/public/applications',
+    'GET /api/session', 'POST /api/logout', 'POST /api/drive/disconnect',
+    'GET /auth/google/start', 'GET /auth/google/callback',
+    'GET /auth/drive/start', 'GET /auth/drive/callback',
+    'GET /api/sync/:appId', 'PUT /api/sync/:appId',
+    'GET /api/sync/:appId/files', 'GET /api/sync/:appId/files/:name',
+    'PUT /api/sync/:appId/files/:name', 'PATCH /api/sync/:appId/files/:name',
+    'DELETE /api/sync/:appId/files/:name?version=N',
+    'GET /demo', 'GET /demo/login', 'GET /demo/drive',
+    'POST /api/demo/text-file', 'POST /api/home/applications/:appId/file-count'
+  ]);
+  assert.match(html, /multiple: true/);
 });
 
 test('Les applications publiques exposent uniquement leur identifiant et leurs options', async () => {

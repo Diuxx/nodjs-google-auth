@@ -6,6 +6,7 @@ import { AppError, requireCondition } from '../lib/errors.js';
 import { requireAppOrigin } from '../lib/client-apps.js';
 import { registerDemoRoutes } from './demo/routes.js';
 import { registerHomeRoutes } from './home/routes.js';
+import { registerThemeRoutes } from './theme/routes.js';
 import { registerDemoTextRoutes } from './demo/text-routes.js';
 import { cookieSettings, setSessionCookie, clearSessionCookie, setFlowCookie, clearFlowCookie } from './cookies.js';
 
@@ -21,7 +22,7 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
   await app.register(cors, {
     credentials: true,
     origin: (origin, done) => done(null, origin && config.clientApps.origins.has(origin) ? origin : false),
-    methods: ['GET', 'PUT', 'POST', 'OPTIONS'],
+    methods: ['GET', 'PUT', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type']
   });
   await app.register(helmet, { referrerPolicy: { policy: 'no-referrer' } });
@@ -96,6 +97,7 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
     return reply.redirect(result.returnUrl);
   }
 
+  registerThemeRoutes(app);
   registerHomeRoutes(app, { repo, clientApps: config.clientApps });
   registerDemoRoutes(app, config.publicBaseUrl);
   registerDemoTextRoutes(app, { config, drive, requireUser });
@@ -175,6 +177,34 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
     const user = requireMultipleSyncAccess(request);
     return sync.putFile(user.id, request.params.appId, request.params.name,
       request.body.version, request.body.data);
+  });
+
+  app.patch('/api/sync/:appId/files/:name', {
+    schema: {
+      body: {
+        type: 'object', required: ['version', 'name'], additionalProperties: false,
+        properties: {
+          version: { type: 'integer', minimum: 1 },
+          name: { type: 'string' }
+        }
+      }
+    }
+  }, async request => {
+    const user = requireMultipleSyncAccess(request);
+    return sync.renameFile(user.id, request.params.appId, request.params.name,
+      request.body.name, request.body.version);
+  });
+
+  app.delete('/api/sync/:appId/files/:name', {
+    schema: {
+      querystring: {
+        type: 'object', required: ['version'], additionalProperties: false,
+        properties: { version: { type: 'integer', minimum: 1 } }
+      }
+    }
+  }, async request => {
+    const user = requireMultipleSyncAccess(request);
+    return sync.deleteFile(user.id, request.params.appId, request.params.name, request.query.version);
   });
 
   app.put('/api/sync/:appId', {

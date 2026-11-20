@@ -4,10 +4,12 @@
   "private": true,
   "type": "module",
   "description": "Connexion Google et synchronisation Google Drive centralisées pour applications web.",
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --env-file=.env --watch src/server.js",
+    "dev": "start http://localhost:3000 & node --env-file=.env --watch src/server.js",
     "test": "node --test",
     "check": "node scripts/check-syntax.js",
     "secret": "node scripts/generate-secret.js"

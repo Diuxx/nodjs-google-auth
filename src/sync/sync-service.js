@@ -21,6 +21,8 @@ function validateWrite(expectedVersion, data) {
 }
 
 function nextDocument(appId, currentVersion, data, clock) {
+  requireCondition(currentVersion < Number.MAX_SAFE_INTEGER, 409, 'SYNC_VERSION_LIMIT',
+    'La version du document ne peut plus être incrémentée.');
   return {
     schemaVersion: 1,
     appId,
@@ -87,6 +89,37 @@ export function createSyncService({ drive, mutex = createKeyedMutex(), clock = (
         const document = nextDocument(appId, currentVersion, data, clock);
         await drive.writeFile(userId, appId, name, folderId, fileId, document);
         return { appId, name, version: document.version, updatedAt: document.updatedAt, data: document.data };
+      });
+    },
+    async renameFile(userId, appId, name, newName, expectedVersion) {
+      requireFileName(name);
+      requireFileName(newName);
+      requireCondition(Number.isSafeInteger(expectedVersion) && expectedVersion >= 1,
+        400, 'INVALID_VERSION', 'Version attendue invalide.');
+      return mutex.run(`${userId}:${appId}`, async () => {
+        const { fileId, document: remote } = await drive.readFile(userId, appId, name);
+        requireCondition(remote, 404, 'SYNC_FILE_NOT_FOUND', 'Fichier de synchronisation introuvable.');
+        requireExpectedVersion(remote, expectedVersion);
+        if (name === newName) {
+          return { appId, name, version: remote.version, updatedAt: remote.updatedAt, data: remote.data };
+        }
+        const target = await drive.readFile(userId, appId, newName);
+        requireCondition(!target.fileId, 409, 'SYNC_FILENAME_EXISTS', 'Un fichier porte déjà ce nom.');
+        const document = nextDocument(appId, remote.version, remote.data, clock);
+        await drive.renameFile(userId, fileId, newName, document);
+        return { appId, name: newName, version: document.version, updatedAt: document.updatedAt, data: document.data };
+      });
+    },
+    async deleteFile(userId, appId, name, expectedVersion) {
+      requireFileName(name);
+      requireCondition(Number.isSafeInteger(expectedVersion) && expectedVersion >= 1,
+        400, 'INVALID_VERSION', 'Version attendue invalide.');
+      return mutex.run(`${userId}:${appId}`, async () => {
+        const { fileId, document: remote } = await drive.readFile(userId, appId, name);
+        requireCondition(remote, 404, 'SYNC_FILE_NOT_FOUND', 'Fichier de synchronisation introuvable.');
+        requireExpectedVersion(remote, expectedVersion);
+        await drive.deleteFile(userId, fileId);
+        return { ok: true };
       });
     }
   };

@@ -1,24 +1,33 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="dark">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#FAFAF8">
   <meta name="description" content="Nicolabz Identity : tableau de bord du service d'authentification Google et de synchronisation Drive.">
   <title>Nicolabz Identity · Vue d'ensemble</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/theme/theme.css">
   <link rel="stylesheet" href="/home/home.css">
+  <script src="/theme/theme.js" defer></script>
   <script src="/home/home.js" type="module"></script>
 </head>
 <body>
   <div class="shell">
+    <div class="spectrum-art" aria-hidden="true"><div class="spectrum-art__shape"></div></div>
     <header class="topbar">
       <a class="brand" href="/" aria-label="Nicolabz Identity, accueil">
-        <span class="brand-mark" aria-hidden="true">N</span>
+        <img class="brand-mark" src="/favicon.svg" width="32" height="32" alt="">
         <span>nicolabz<span class="brand-muted">.identity</span></span>
       </a>
       <div class="header-right">
         <span class="version">SERVICE HUB <span aria-hidden="true">/</span> v0.1</span>
         <a class="nav-link" href="/demo">Démo OAuth <span aria-hidden="true">↗</span></a>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Activer le thème sombre" aria-pressed="false">
+          <span data-theme-icon aria-hidden="true">☾</span>
+          <span data-theme-label>Mode sombre</span>
+        </button>
       </div>
     </header>
 
@@ -37,7 +46,7 @@
         <aside class="health-panel" aria-labelledby="health-title">
           <div class="panel-heading">
             <span id="health-title" class="micro-label">ÉTAT DU SERVICE</span>
-            <button id="refresh" class="refresh" type="button" aria-label="Actualiser l'état et les statistiques" title="Actualiser">↻</button>
+            <button id="refresh" class="refresh" type="button" aria-label="Actualiser l'état, les statistiques et les applications" title="Actualiser">↻</button>
           </div>
           <div class="health-state">
             <span id="status-indicator" class="status-indicator is-loading" aria-hidden="true"></span>
@@ -120,11 +129,45 @@
             <h2 id="api-title">Interfaces</h2>
             <span class="micro-label">HTTP API</span>
           </div>
-          <div class="endpoint-row"><span class="method">GET</span><code>/health</code><a href="/health" aria-label="Ouvrir le contrôle de santé">↗</a></div>
-          <div class="endpoint-row"><span class="method">GET</span><code>/api/public/status</code><a href="/api/public/status" aria-label="Ouvrir les statistiques publiques">↗</a></div>
-          <div class="endpoint-row"><span class="method">GET</span><code>/api/session</code><a href="/api/session" aria-label="Ouvrir la session">↗</a></div>
-          <div class="endpoint-row"><span class="method">GET</span><code>/api/sync/:appId</code><span class="endpoint-note">Auth.</span></div>
-          <div class="endpoint-row"><span class="method write">PUT</span><code>/api/sync/:appId</code><span class="endpoint-note">Auth.</span></div>
+          <p class="endpoint-help">Routes fonctionnelles, hors ressources statiques. Les requêtes protégées exigent une session et/ou une origine autorisée.</p>
+          <details class="endpoint-group" open>
+            <summary>Service et session</summary>
+            <div class="endpoint-row"><span class="method">GET</span><code>/health</code><a href="/health" aria-label="Ouvrir le contrôle de santé">↗</a></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/public/status</code><a href="/api/public/status" aria-label="Ouvrir les statistiques publiques">↗</a></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/public/applications</code><a href="/api/public/applications" aria-label="Ouvrir les applications publiques">↗</a></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/session</code><a href="/api/session" aria-label="Ouvrir la session">↗</a></div>
+            <div class="endpoint-row"><span class="method write">POST</span><code>/api/logout</code><span class="endpoint-note">Origine</span></div>
+            <div class="endpoint-row"><span class="method write">POST</span><code>/api/drive/disconnect</code><span class="endpoint-note">Session</span></div>
+          </details>
+          <details class="endpoint-group">
+            <summary>Authentification Google et Drive</summary>
+            <p class="endpoint-help">Les démarrages nécessitent les paramètres <code>app</code> et <code>return_to</code>. Les callbacks sont réservés au retour Google.</p>
+            <div class="endpoint-row"><span class="method">GET</span><code>/auth/google/start</code><span class="endpoint-note">Connexion</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/auth/google/callback</code><span class="endpoint-note">Google</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/auth/drive/start</code><span class="endpoint-note">Session</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/auth/drive/callback</code><span class="endpoint-note">Google</span></div>
+          </details>
+          <details class="endpoint-group" open>
+            <summary>Synchronisation Drive</summary>
+            <p class="endpoint-help">Session, Drive connecté et origine de l’application requis. Les routes multi-fichiers exigent aussi <code>multiple: true</code>.</p>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/sync/:appId</code><span class="endpoint-note">Lecture</span></div>
+            <div class="endpoint-row"><span class="method write">PUT</span><code>/api/sync/:appId</code><span class="endpoint-note">Écriture</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/sync/:appId/files</code><span class="endpoint-note">Multi</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/sync/:appId/files/:name</code><span class="endpoint-note">Multi</span></div>
+            <div class="endpoint-row"><span class="method write">PUT</span><code>/api/sync/:appId/files/:name</code><span class="endpoint-note">Multi</span></div>
+            <div class="endpoint-row"><span class="method write">PATCH</span><code>/api/sync/:appId/files/:name</code><span class="endpoint-note">Renommer</span></div>
+            <div class="endpoint-row"><span class="method write">DELETE</span><code>/api/sync/:appId/files/:name?version=N</code><span class="endpoint-note">Supprimer</span></div>
+          </details>
+          <details class="endpoint-group">
+            <summary>Démo et tableau de bord</summary>
+            <p class="endpoint-help">Le comptage et la création TXT exigent une session et l’origine du service.</p>
+            <div class="endpoint-row"><span class="method">GET</span><code>/demo</code><a href="/demo" aria-label="Ouvrir la démonstration">↗</a></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/demo/login</code><span class="endpoint-note">Démo</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/demo/drive</code><span class="endpoint-note">Session</span></div>
+            <div class="endpoint-row"><span class="method write">POST</span><code>/api/demo/text-file</code><span class="endpoint-note">Démo</span></div>
+            <div class="endpoint-row"><span class="method write">POST</span><code>/api/home/applications/:appId/file-count</code><span class="endpoint-note">Privé</span></div>
+          </details>
+          <p class="endpoint-help">Les requêtes <code>OPTIONS</code> de précontrôle CORS sont prises en charge pour les origines autorisées.</p>
           <div class="stack"><span>STACK</span> Node.js <b>·</b> Fastify <b>·</b> SQLite <b>·</b> Google APIs <b>·</b> Podman</div>
         </section>
       </div>

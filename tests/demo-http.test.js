@@ -10,7 +10,7 @@ function fixture({ user = null, drive = {}, authOverrides = {}, google = {}, onD
     GOOGLE_CLIENT_ID: 'id.apps.googleusercontent.com',
     GOOGLE_CLIENT_SECRET: 'test-secret',
     TOKEN_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
-    CLIENT_APPS_JSON: '[{"id":"todo","origins":["https://todo.nicolabz.dev"]}]'
+    CLIENT_APPS_JSON: '[{"id":"todo","origins":["https://todo.nicolabz.dev","https://todo-alt.nicolabz.dev"]}]'
   });
   const encryptedRefreshToken = config.cipher.encrypt('test-refresh-token');
   const repo = {
@@ -43,12 +43,18 @@ test('HTTP /demo : HTML, JS, CSS, session anonyme et début OAuth', async t => {
   assert.equal(page.statusCode, 200);
   assert.match(page.headers['content-type'], /^text\/html/);
   assert.match(page.body, /Continuer avec Google/);
+  assert.match(page.body, /data-theme="light"/);
+  assert.match(page.body, /data-theme-toggle/);
+  assert.match(page.body, /\/theme\/theme\.css/);
+  assert.match(page.body, /\/theme\/theme\.js/);
   assert.equal(page.headers['cache-control'], 'no-store');
   assert.match(page.headers['content-security-policy'], /script-src 'self'/);
 
   for (const [route, type] of [
     ['/demo/demo.js', 'text/javascript'],
-    ['/demo/demo.css', 'text/css']
+    ['/demo/demo.css', 'text/css'],
+    ['/theme/theme.js', 'text/javascript'],
+    ['/theme/theme.css', 'text/css']
   ]) {
     const asset = await app.inject({ method: 'GET', url: route });
     assert.equal(asset.statusCode, 200);
@@ -192,7 +198,7 @@ test('HTTP / : accueil et statut public provenant de SQLite', async t => {
   const page = await app.inject({ method: 'GET', url: '/' });
   assert.equal(page.statusCode, 200);
   assert.match(page.headers['content-type'], /^text\/html/);
-  assert.match(page.body, /Utilisateurs uniques/);
+  assert.match(page.body, /UTILISATEURS UNIQUES/i);
   assert.match(page.headers['content-security-policy'], /script-src 'self'/);
 
   for (const route of ['/home/home.css', '/home/home.js']) {
@@ -206,4 +212,11 @@ test('HTTP / : accueil et statut public provenant de SQLite', async t => {
     statistics: { totalUsers: 6, activeUsers: 2, connectedDrives: 3, registeredApplications: 1 }
   });
   assert.equal(status.headers['cache-control'], 'no-store');
+
+  const applications = await app.inject({ method: 'GET', url: '/api/public/applications' });
+  assert.equal(applications.statusCode, 200);
+  assert.equal(applications.headers['cache-control'], 'no-store');
+  assert.deepEqual(applications.json(), {
+    applications: [{ id: 'todo', requiresDrive: false, multiple: false }]
+  });
 });

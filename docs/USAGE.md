@@ -128,6 +128,140 @@ Use the configured app ID as the sync namespace, include
 version with each write. A `409 SYNC_CONFLICT` requires the client to reload
 and resolve the conflict; the server does not merge documents automatically.
 
+## HTTP Routes
+
+Paths are relative to `PUBLIC_BASE_URL`. The dashboard lists these functional
+routes; the tables below describe their contracts. Static assets are listed
+separately. JSON examples are illustrative, not live service data.
+
+### Access and browser requests
+
+- **Public** routes do not require a session.
+- **Session** means an authenticated session cookie. Browser API calls from
+  an application should use `credentials: 'include'`.
+- **Allowed origin** means the request's `Origin` must be registered in
+  `CLIENT_APPS_JSON` or be the reserved `PUBLIC_BASE_URL` origin for the demo.
+  For sync routes, the origin must belong to the requested `appId`.
+- **Service origin** means the exact `PUBLIC_BASE_URL` origin, not another
+  registered application's origin.
+- **Drive** means a stored Drive credential for the signed-in user; an expired
+  or revoked authorization can still require reconnection.
+- **Multi** additionally requires `multiple: true` for that application.
+
+The internal `demo` app is reserved and cannot use sync routes. CORS allows
+credentials and the methods `GET`, `PUT`, `POST`, `PATCH`, `DELETE`, and
+`OPTIONS` for configured origins; it does not replace the per-route checks
+above. JSON request bodies use `Content-Type: application/json`. The general
+request body limit is 1 MiB; the demo text endpoint has a smaller limit.
+
+### Service, session, and dashboard
+
+| Method | Route | Access | Success |
+| --- | --- | --- | --- |
+| GET | `/` | Public | HTML dashboard |
+| GET | `/health` | Public | `200` with `{"status":"ok"}` after a local SQLite check |
+| GET | `/api/public/status` | Public | `200` with local checks and aggregate statistics |
+| GET | `/api/public/applications` | Public | `200` with registered app IDs and options, excluding `demo` |
+| GET | `/api/session` | Public | `200` with session state; `user` is `null` when anonymous |
+| POST | `/api/logout` | Allowed origin | `200` with `{"ok":true}`; removes the current session if present |
+| POST | `/api/drive/disconnect` | Session, allowed origin | `200` with `{"ok":true}`; removes the local Drive credential |
+| POST | `/api/home/applications/:appId/file-count` | Session, service origin, Drive | `200` with counts for the signed-in user |
+
+`GET /api/public/status` returns
+`{"status":"ok","checks":{"api":"ok","sqlite":"ok"},"statistics":{"totalUsers":0,"activeUsers":0,"connectedDrives":0,"registeredApplications":0}}`.
+These checks do not test Google services.
+`GET /api/public/applications` returns
+`{"applications":[{"id":"pecule","requiresDrive":true,"multiple":true}]}`.
+The anonymous session response is
+`{"authenticated":false,"user":null,"driveConnected":false}`. When signed
+in, `user` contains `id`, `email`, `name`, and `picture`; `driveConnected`
+only indicates that a local credential exists, not that Google still accepts it.
+
+For example, the file-count response is
+`{"appId":"pecule","legacy":1,"named":2,"total":3}`. It reads Drive metadata
+on demand, including named files when multi-file mode is disabled. See
+[Home Page Applications](#home-page-applications).
+
+### OAuth and demo
+
+| Method | Route | Access | Success |
+| --- | --- | --- | --- |
+| GET | `/auth/google/start?app=<id>&return_to=<url>` | Public | `302` to Google for identity, with Drive scope if configured |
+| GET | `/auth/google/callback` | Google OAuth flow | `302` to the approved return URL with `auth=connected` |
+| GET | `/auth/drive/start?app=<id>&return_to=<url>` | Session | `302` to Google for Drive authorization |
+| GET | `/auth/drive/callback` | Google OAuth flow, same session | `302` to the approved return URL with `drive=connected` |
+| GET | `/demo` | Public | HTML demo; `/demo/` redirects to it |
+| GET | `/demo/login` | Public | `302` to the demo's Google login start |
+| GET | `/demo/drive` | Public redirect; destination requires a session | `302` to the demo's Drive authorization start |
+| POST | `/api/demo/text-file` | Session, service origin, Drive | `201` with the created visible Drive text file |
+
+The OAuth start routes require a registered `app` and an absolute `return_to`
+URL with an origin registered for that app. Encode query values when building
+the URL. Callbacks are invoked by Google and require the active browser-bound
+flow; they are not general-purpose login endpoints. Google consent refusal
+returns `400 GOOGLE_AUTH_DECLINED`. The separate Drive flow also verifies
+that the Google account matches the signed-in account.
+
+The demo text request is `{"filename":"example.txt","content":"Hello"}`.
+The filename must be a simple `.txt` name of at most 100 characters, without
+`..`; content is limited to 16 KiB UTF-8. A successful response has the form
+`{"id":"<drive-id>","name":"example.txt","url":"https://drive.google.com/file/d/<drive-id>/view"}`.
+This creates a visible file in My Drive and does not delete it automatically.
+
+### Synchronization
+
+All sync routes require a session, the origin registered for `:appId`, and
+Drive access. `:appId` identifies the application; `:name` is a validated
+JSON filename. Multi-file routes additionally require the app's `multiple`
+setting. See [Multiple JSON Files](#multiple-json-files) for naming rules,
+examples, conflict handling, and deletion precautions.
+
+| Method | Route | Access | Request and success |
+| --- | --- | --- | --- |
+| GET | `/api/sync/:appId` | Session, app origin, Drive | `200` with the single document, or version `0` and `null` data if absent |
+| PUT | `/api/sync/:appId` | Session, app origin, Drive | `{"version":N,"data":{}}`; `200` with the updated document |
+| GET | `/api/sync/:appId/files` | Session, app origin, Drive, multi | `200` with `{"appId":"pecule","files":["comptes.json"]}` |
+| GET | `/api/sync/:appId/files/:name` | Session, app origin, Drive, multi | `200` with the named document; `404` if absent |
+| PUT | `/api/sync/:appId/files/:name` | Session, app origin, Drive, multi | `{"version":N,"data":{}}`; `200` with the created or updated document |
+| PATCH | `/api/sync/:appId/files/:name` | Session, app origin, Drive, multi | `{"version":N,"name":"new.json"}`; `200` with the renamed document |
+| DELETE | `/api/sync/:appId/files/:name?version=N` | Session, app origin, Drive, multi | `200` with `{"ok":true}`; permanently deletes the file |
+
+Write `data` must be a JSON object or array. Use version `0` to create a
+document and the latest returned version to update it. Named-file rename and
+delete require a version of at least `1`. A single-document response contains
+`appId`, `version`, `updatedAt`, and `data`; named-document responses also
+contain `name`.
+
+### Errors
+
+Application errors handled by the server return JSON in this shape:
+`{"error":{"code":"SYNC_CONFLICT","message":"..."}}`. Common cases include:
+
+| Status | Code | Meaning |
+| --- | --- | --- |
+| 400 | `VALIDATION_FAILED` | Invalid request body or query parameters |
+| 400 | `INVALID_SYNC_FILENAME` | Invalid named-file source or destination |
+| 400 | `GOOGLE_AUTH_DECLINED` | Google login or authorization was refused |
+| 401 | `UNAUTHENTICATED` | A required session is missing |
+| 403 | `ORIGIN_FORBIDDEN` | The request origin is not allowed for the route |
+| 403 | `MULTIPLE_SYNC_DISABLED` | Multi-file mode is disabled for this app |
+| 404 | `UNKNOWN_APP` / `SYNC_FILE_NOT_FOUND` | App or named file not found |
+| 409 | `SYNC_CONFLICT` | The supplied version is stale |
+| 409 | `SYNC_FILENAME_EXISTS` / `DUPLICATE_DRIVE_FILES` | Destination exists or Drive contains duplicate names |
+| 409 | `DRIVE_NOT_CONNECTED` / `DRIVE_RECONNECT_REQUIRED` / `DRIVE_ACCESS_DENIED` | Drive authorization is missing, expired, or denied |
+| 413 | `PAYLOAD_TOO_LARGE` / `TEXT_FILE_TOO_LARGE` | The applicable request or text content limit was exceeded |
+| 502 | `DRIVE_API_FAILED` / `GOOGLE_NETWORK_FAILED` | Google Drive failed or could not be reached |
+
+`UNKNOWN_APP` may also be a `400` when starting an OAuth flow with an
+undeclared app. Other OAuth, validation, and provider errors can also occur.
+Do not treat a failed or timed-out write as proof that Drive did not apply it.
+
+### Static assets
+
+The server also provides `GET /home/home.css`, `/home/home.js`,
+`/demo/demo.css`, `/demo/demo.js`, `/favicon.svg`, `/theme/theme.css`,
+`/theme/theme.js`, and `/theme/lucide-license.txt`.
+
 ## Multiple JSON Files
 
 Set `multiple` to `true` for each application that needs multiple files:
@@ -140,15 +274,8 @@ The option must be a boolean; omitted or `false` disables the new routes.
 It is independent of `requiresDrive`: an app can request Drive during login
 or use the existing separate Drive authorization flow.
 
-The following routes require an authenticated session, Drive access, the
-registered origin for `appId`, and `multiple: true`. Include
-`credentials: 'include'` in browser requests.
-
-| Method | Route | Result |
-| --- | --- | --- |
-| GET | `/api/sync/:appId/files` | `{ "appId": "pecule", "files": ["budgets.json", "comptes.json"] }` |
-| GET | `/api/sync/:appId/files/:name` | The named document, or `404 SYNC_FILE_NOT_FOUND` |
-| PUT | `/api/sync/:appId/files/:name` | Create or update a JSON document |
+The routes and access requirements are listed under
+[Synchronization](#synchronization).
 
 Names must start with an ASCII letter or digit and contain only ASCII letters,
 digits, `_`, or `-` before the lowercase `.json` extension. The base name is
@@ -173,6 +300,23 @@ For updates, send the last known version. Stale versions return
 If Drive contains duplicate folder or file names, the API reports
 `409 DUPLICATE_DRIVE_FILES` instead of choosing one.
 
+To rename a file, send `PATCH /api/sync/pecule/files/comptes.json` with
+`{"version":1,"name":"accounts.json"}`. The response has the same shape as
+a read, with the new name and incremented version. Renaming to the same name
+checks the version but leaves the document unchanged. An occupied target
+returns `409 SYNC_FILENAME_EXISTS`; a missing source returns
+`404 SYNC_FILE_NOT_FOUND`.
+
+To delete the renamed document, send
+`DELETE /api/sync/pecule/files/accounts.json?version=2`. A successful deletion
+returns `{"ok":true}`. This permanently deletes the Drive file rather than
+moving it to the trash. Confirm the user's intent and keep a backup if needed.
+After a timeout or lost response, re-read before retrying; recreating a name
+starts its version at 1, so a version is not a permanent file identity. A
+stale request can therefore match a replacement with the same name and
+version. A timed-out Drive operation may also complete after a later read;
+verify its outcome before retrying or reusing the name.
+
 The server creates a folder named `nicolabz.<appId>` inside each user's
 private `appDataFolder` on the first write. The Google OAuth client and this
 space are shared across applications: folder names are an organization
@@ -185,10 +329,14 @@ automatically. To switch an existing client, explicitly read its old document
 and copy it into a new named file using the API, verifying the result before
 making any separate cleanup decision.
 
-The service provides no multi-file deletion, rename, automatic migration or
-automatic sync. It uses in-memory locks within one server process; do not run
-multiple writing instances against the same data. The existing 1 MiB HTTP
-request body limit applies to each write.
+The service provides no automatic migration or automatic sync. Files previously
+created directly under `appDataFolder` by the separate metadata-based
+multi-file implementation are not migrated or listed by these routes; they
+remain untouched and require an explicit, verified migration. The service
+uses in-memory locks within one server process; do not run multiple writing
+instances against the same data. Drive writes outside this process are not
+protected by an atomic compare-and-swap. The existing 1 MiB HTTP request body
+limit applies to each write.
 
 ## Data and Troubleshooting
 

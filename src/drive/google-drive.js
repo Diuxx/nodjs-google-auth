@@ -5,6 +5,7 @@ const API_URL = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD_URL = 'https://www.googleapis.com/upload/drive/v3/files';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 const JSON_MIME = 'application/json';
+const MULTI_JSON_KIND = 'multi-json';
 
 function driveError(status) {
   if (status === 401 || status === 403) {
@@ -50,17 +51,20 @@ export function createGoogleDrive({ config, repo, google, http = fetch }) {
     return response;
   }
 
-  async function createFile(userId, metadata, content, mediaType) {
+  function multipartBody(metadata, content, mediaType) {
     const boundary = `nicolabz-${randomBytes(12).toString('hex')}`;
-    const multipart = [
+    const body = [
       `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n`,
       `--${boundary}\r\nContent-Type: ${mediaType}\r\n\r\n${content}\r\n`,
       `--${boundary}--\r\n`
     ].join('');
+    return { body, contentType: `multipart/related; boundary=${boundary}` };
+  }
+
+  async function createFile(userId, metadata, content, mediaType) {
     const response = await request(userId, 'POST',
-      `${UPLOAD_URL}?uploadType=multipart&fields=id,name,webViewLink`, {
-        body: multipart, contentType: `multipart/related; boundary=${boundary}`
-      });
+      `${UPLOAD_URL}?uploadType=multipart&fields=id,name,appProperties,modifiedTime,webViewLink`,
+      multipartBody(metadata, content, mediaType));
     if (!response.ok) throw driveError(response.status);
     const created = await response.json();
     if (!created.id) throw new AppError(502, 'DRIVE_CREATE_FAILED',
@@ -149,26 +153,25 @@ export function createGoogleDrive({ config, repo, google, http = fetch }) {
   }
 
   async function findFile(userId, appId) {
-    const name = `nicolabz.${appId}.json`;
+    const name = queryValue(`nicolabz.${appId}.json`);
     const params = new URLSearchParams({
       spaces: 'appDataFolder',
-      q: `name = '${name}' and 'appDataFolder' in parents and trashed = false`,
-      fields: 'nextPageToken,files(id,name)',
+      q: `name = '${name}' and mimeType = '${JSON_MIME}' and 'appDataFolder' in parents and trashed = false`,
+      fields: 'nextPageToken,files(id,name,appProperties)',
       pageSize: '10'
     });
     const response = await request(userId, 'GET', `${API_URL}?${params}`);
+    if (!response.ok) throw driveError(response.status);
     const result = await response.json();
-    if (result.nextPageToken || result.files?.length > 1) {
+    const files = (result.files ?? []).filter(file => file.appProperties?.kind !== MULTI_JSON_KIND);
+    if (result.nextPageToken || files.length > 1) {
       throw new AppError(409, 'DUPLICATE_DRIVE_FILES', 'Plusieurs fichiers de synchronisation portent le même nom. Intervention nécessaire.');
     }
-    return result.files?.[0]?.id ?? null;
+    return files[0]?.id ?? null;
   }
 
   async function hasLegacyFile(userId, appId) {
-    const name = queryValue(`nicolabz.${appId}.json`);
-    const files = await listEntries(userId,
-      `name = '${name}' and mimeType = '${JSON_MIME}' and 'appDataFolder' in parents and trashed = false`);
-    return Boolean(uniqueEntry(files));
+    return Boolean(await findFile(userId, appId));
   }
 
   async function resolveFileId(userId, appId) {
@@ -232,6 +235,18 @@ export function createGoogleDrive({ config, repo, google, http = fetch }) {
       { name, mimeType: JSON_MIME, parents: [parentId] }, content, 'application/json; charset=UTF-8');
   }
 
+  async function renameFile(userId, fileId, name, document) {
+    const response = await request(userId, 'PATCH',
+      `${UPLOAD_URL}/${encodeURIComponent(fileId)}?uploadType=multipart&fields=id`,
+      multipartBody({ name }, JSON.stringify(document), 'application/json; charset=UTF-8'));
+    if (response.status === 404) throw new AppError(409, 'DRIVE_FILE_REMOVED', 'Fichier Drive supprimé. Recharge les données avant de réessayer.');
+  }
+
+  async function deleteFile(userId, fileId) {
+    const response = await request(userId, 'DELETE', `${API_URL}/${encodeURIComponent(fileId)}`);
+    if (response.status === 404) throw new AppError(409, 'DRIVE_FILE_REMOVED', 'Fichier Drive supprimé. Recharge les données avant de réessayer.');
+  }
+
   async function write(userId, appId, fileId, document) {
     const content = JSON.stringify(document);
     if (fileId) {
@@ -261,5 +276,5 @@ export function createGoogleDrive({ config, repo, google, http = fetch }) {
     };
   }
 
-  return { read, write, listFiles, readFile, writeFile, hasLegacyFile, createTextFile };
+  return { read, write, listFiles, readFile, writeFile, renameFile, deleteFile, hasLegacyFile, createTextFile };
 }

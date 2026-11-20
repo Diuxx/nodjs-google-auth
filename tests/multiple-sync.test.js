@@ -22,6 +22,7 @@ async function setup() {
   let nextId = 0;
   const writes = [];
   const reads = [];
+  const failures = new Map();
   const index = new Map();
   const repo = {
     sessions: {
@@ -41,6 +42,11 @@ async function setup() {
     const parsed = new URL(url);
     const owner = options.headers.Authorization.slice('Bearer '.length);
     const { method, body } = options;
+    if (failures.has(method)) {
+      const status = failures.get(method);
+      failures.delete(method);
+      return new Response('', { status });
+    }
     if (method === 'GET' && parsed.searchParams.has('q')) {
       const query = parsed.searchParams.get('q');
       const parent = /'([^']+)' in parents/.exec(query)?.[1];
@@ -83,8 +89,24 @@ async function setup() {
       const id = parsed.pathname.split('/').pop();
       const file = files.find(item => item.id === id && item.owner === owner);
       if (!file) return new Response('', { status: 404 });
-      file.document = JSON.parse(body);
+      if (parsed.searchParams.get('uploadType') === 'multipart') {
+        const metadataText = /\r\n\r\n([^\r]+)\r\n--/.exec(body)?.[1];
+        const documentText = /Content-Type: application\/json; charset=UTF-8\r\n\r\n(\{.*\})\r\n--[^\r]+--/.exec(body)?.[1];
+        assert.ok(metadataText && documentText);
+        file.name = JSON.parse(metadataText).name;
+        file.document = JSON.parse(documentText);
+      } else {
+        file.document = JSON.parse(body);
+      }
       return Response.json({ id });
+    }
+    if (method === 'DELETE') {
+      writes.push({ owner, method });
+      const id = parsed.pathname.split('/').pop();
+      const position = files.findIndex(item => item.id === id && item.owner === owner);
+      if (position === -1) return new Response('', { status: 404 });
+      files.splice(position, 1);
+      return new Response(null, { status: 204 });
     }
     throw new Error(`Unexpected Drive request: ${method} ${url}`);
   };
@@ -100,7 +122,7 @@ async function setup() {
       headers: { origin, ...(user ? { cookie: `__Host-nicolabz_sid=${user}` } : {}) },
       ...(payload === undefined ? {} : { payload })
     });
-  return { app, config, files, writes, reads, request };
+  return { app, config, files, writes, reads, failures, request };
 }
 
 test('Multi-fichiers : création, pagination, lecture, versions et isolation', async t => {
@@ -232,4 +254,83 @@ test('Le comptage privé inclut les fichiers classiques et multiples sans écrit
   files.push({ ...folder, id: 'duplicate-folder' });
   const duplicate = await request('POST', path, { origin: 'https://auth.example.org' });
   assert.equal(duplicate.json().error.code, 'DUPLICATE_DRIVE_FILES');
+});
+
+test('Renommage et suppression versionnés conservent les autres fichiers et comptes', async t => {
+  const { app, request, writes } = await setup();
+  t.after(() => app.close());
+  const root = '/api/sync/pecule/files';
+  const source = `${root}/one.json`;
+  const target = `${root}/renamed.json`;
+  await request('PUT', source, { payload: { version: 0, data: { amount: 10 } } });
+  await request('PUT', `${root}/other.json`, { payload: { version: 0, data: { safe: true } } });
+  await request('PUT', source, { user: 'user2', payload: { version: 0, data: { safe: true } } });
+
+  const unchanged = await request('PATCH', source, { payload: { name: 'one.json', version: 1 } });
+  assert.equal(unchanged.json().version, 1);
+  const before = writes.length;
+  assert.equal((await request('PATCH', source, { payload: { name: 'renamed.json', version: 0 } })).statusCode, 400);
+  assert.equal((await request('PATCH', source, { payload: { name: 'renamed.json', version: 2 } })).json().error.code, 'SYNC_CONFLICT');
+  assert.equal((await request('PATCH', source, { payload: { name: 'other.json', version: 1 } })).json().error.code, 'SYNC_FILENAME_EXISTS');
+  assert.equal((await request('PATCH', source, { payload: { name: '../bad.json', version: 1 } })).json().error.code, 'INVALID_SYNC_FILENAME');
+  assert.equal(writes.length, before);
+
+  const renamed = await request('PATCH', source, { payload: { name: 'renamed.json', version: 1 } });
+  assert.equal(renamed.statusCode, 200);
+  assert.deepEqual(renamed.json(), {
+    appId: 'pecule', name: 'renamed.json', version: 2,
+    updatedAt: '2026-01-01T00:00:00.000Z', data: { amount: 10 }
+  });
+  assert.equal((await request('GET', source)).statusCode, 404);
+  assert.deepEqual((await request('GET', target)).json(), renamed.json());
+  assert.equal((await request('DELETE', `${target}?version=1`)).json().error.code, 'SYNC_CONFLICT');
+  assert.equal((await request('DELETE', target)).statusCode, 400);
+  assert.deepEqual((await request('DELETE', `${target}?version=2`)).json(), { ok: true });
+  assert.equal((await request('GET', target)).statusCode, 404);
+  assert.deepEqual((await request('GET', `${root}/other.json`)).json().data, { safe: true });
+  assert.deepEqual((await request('GET', source, { user: 'user2' })).json().data, { safe: true });
+  assert.equal((await request('DELETE', `${target}?version=2`)).statusCode, 404);
+});
+
+test('Mutations : autorisations, doublons, concurrence et erreurs Drive', async t => {
+  const { app, request, files, writes, failures } = await setup();
+  t.after(() => app.close());
+  const source = '/api/sync/pecule/files/one.json';
+  const rename = { name: 'new.json', version: 1 };
+  await request('PUT', source, { payload: { version: 0, data: { safe: true } } });
+  const before = writes.length;
+  assert.equal((await request('PATCH', source, { user: null, payload: rename })).statusCode, 401);
+  assert.equal((await request('DELETE', `${source}?version=1`, { origin: 'https://batch.example.org' })).statusCode, 403);
+  assert.equal((await request('PATCH', '/api/sync/legacy/files/one.json', {
+    origin: 'https://legacy.example.org', payload: rename
+  })).json().error.code, 'MULTIPLE_SYNC_DISABLED');
+  assert.equal((await request('DELETE', `${source}?version=1`, { user: 'user2' })).statusCode, 404);
+  assert.equal(writes.length, before);
+
+  const original = files.find(file => file.name === 'one.json');
+  files.push({ ...original, id: 'duplicate' });
+  assert.equal((await request('PATCH', source, { payload: rename })).json().error.code, 'DUPLICATE_DRIVE_FILES');
+  files.pop();
+  await request('PUT', '/api/sync/pecule/files/new.json', { payload: { version: 0, data: {} } });
+  const target = files.find(file => file.name === 'new.json');
+  files.push({ ...target, id: 'duplicate-target' });
+  assert.equal((await request('PATCH', source, { payload: rename })).json().error.code, 'DUPLICATE_DRIVE_FILES');
+  files.pop();
+  await request('DELETE', '/api/sync/pecule/files/new.json?version=1');
+  failures.set('PATCH', 404);
+  assert.equal((await request('PATCH', source, { payload: rename })).json().error.code, 'DRIVE_FILE_REMOVED');
+  failures.set('DELETE', 404);
+  assert.equal((await request('DELETE', `${source}?version=1`)).json().error.code, 'DRIVE_FILE_REMOVED');
+  failures.set('DELETE', 500);
+  assert.equal((await request('DELETE', `${source}?version=1`)).json().error.code, 'DRIVE_API_FAILED');
+  assert.deepEqual((await request('GET', source)).json().data, { safe: true });
+
+  const outcomes = await Promise.all([
+    request('PATCH', source, { payload: rename }),
+    request('DELETE', `${source}?version=1`)
+  ]);
+  assert.deepEqual(outcomes.map(result => result.statusCode).sort(), [200, 404]);
+  const after = await request('GET', '/api/sync/pecule/files/new.json');
+  if (outcomes[0].statusCode === 200) assert.deepEqual(after.json().data, { safe: true });
+  else assert.equal(after.statusCode, 404);
 });
