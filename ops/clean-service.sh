@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# Remove resources created by Nicolabz Identity's deploy-vps.sh.
+# Remove resources created by Nicolabz Identity's deploy-service.sh.
 # Run as the SAME non-root SSH user that deployed the rootless Podman service.
 # Other Podman containers, Nginx sites, Certbot certificates and packages are preserved.
 
@@ -30,7 +30,7 @@ fail() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'HELP'
-Usage: ./ops/clean-vps.sh [--dry-run] [--purge] [--domain auth.example.com]
+Usage: ./ops/clean-service.sh [--dry-run] [--purge] [--domain auth.example.com]
 
 By default, removes ONLY this app's Quadlet service, Podman container/image,
 managed Nginx configuration, and app-specific Certbot reload hook.

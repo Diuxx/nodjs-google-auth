@@ -30,7 +30,7 @@ fail() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'USAGE'
-Usage: ./ops/deploy-vps.sh [--domain auth.example.com] [--email admin@example.com] [--skip-build] [--configure-env]
+Usage: ./ops/deploy-service.sh [--domain auth.example.com] [--email admin@example.com] [--skip-build] [--configure-env]
 
 Without arguments, the script asks for the domain and Let's Encrypt email.
 On first deployment it also prompts for Google credentials and client apps.
@@ -121,10 +121,23 @@ prompt_client_id() {
   [[ "$REPLY" =~ ^[A-Za-z0-9_-]+\.apps\.googleusercontent\.com$ ]] || fail 'Invalid Google OAuth client ID.'
 }
 
+prompt_boolean() {
+  local prompt="$1" answer
+  while :; do
+    read -r -p "$prompt [y/N]: " answer || fail 'Input cancelled.'
+    case "$answer" in
+      [Yy]|[Yy][Ee][Ss]) REPLY=true; return ;;
+      ''|[Nn]|[Nn][Oo]) REPLY=false; return ;;
+      *) warn 'Enter yes or no.' ;;
+    esac
+  done
+}
+
 # Interactive app list: only simple HTTPS origins are accepted, making JSON encoding safe.
 # Client identifiers and origins are intentionally restricted to avoid free-form JSON input.
 prompt_client_apps() {
   local previous="$1" answer app_id raw_origins origin part app_json='[' comma=''
+  local requires_drive multiple
   local -a origins
   local -A registered_ids=() registered_origins=()
 
@@ -136,7 +149,7 @@ prompt_client_apps() {
     fi
   fi
 
-  info 'Configure authorized applications (the built-in /demo app is automatic).'
+  info 'Configure authorized applications and their options (the built-in /demo app is automatic).'
   while :; do
     read -r -p 'Application ID (e.g. budget; blank to finish): ' app_id || fail 'Input cancelled.'
     if [[ -z "$app_id" ]]; then
@@ -174,7 +187,9 @@ prompt_client_apps() {
       registered_origins["$origin"]=1
     done
     registered_ids["$app_id"]=1
-    app_json+="${comma}{\"id\":\"${app_id}\",\"origins\":${origin_json}}"
+    prompt_boolean "Require Google Drive at login for $app_id?"; requires_drive="$REPLY"
+    prompt_boolean "Enable multiple JSON files for $app_id?"; multiple="$REPLY"
+    app_json+="${comma}{\"id\":\"${app_id}\",\"origins\":${origin_json},\"requiresDrive\":${requires_drive},\"multiple\":${multiple}}"
     comma=','
   done
   REPLY="${app_json}]"

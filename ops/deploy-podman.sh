@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Lancer depuis la racine du dépôt, après configuration de /etc/nicolabz-identity/identity.env.
+# Run from the repository root after configuring ~/.config/nicolabz-identity/identity.env.
 ENV_FILE="${ENV_FILE:-${HOME}/.config/nicolabz-identity/identity.env}"
 IMAGE="localhost/nicolabz-identity:latest"
 HOST_DATA_DIR="/var/volumes/nicolabz-identity"
@@ -11,12 +11,12 @@ if [[ ! -f "$ENV_FILE" ]]; then
   exit 1
 fi
 
-podman build -t "$IMAGE" -f Containerfile .
 # This standalone mode must not interfere with the systemd-managed deployment.
 if [[ -f "$HOME/.config/containers/systemd/nicolabz-identity.container" ]]; then
-  echo "Quadlet already manages this service. Use ops/redeploy-app.sh instead." >&2
+  echo "Quadlet already manages this service. Use ops/redeploy-service.sh instead." >&2
   exit 1
 fi
+podman build -t "$IMAGE" -f Containerfile .
 if [[ -L "$HOST_DATA_DIR" ]]; then
   echo "Refusing a symlinked data directory: $HOST_DATA_DIR" >&2
   exit 1

@@ -8,16 +8,120 @@
   credentials, and generate `TOKEN_ENCRYPTION_KEY_BASE64` with `npm run secret`.
   Do not commit `.env`.
 
-Install dependencies and run the test suite:
+Install dependencies, run the tests, and start the development server:
 
 ```sh
 npm install
 npm test
-npm run dev
+node --env-file=.env --watch src/server.js
 ```
 
-The API listens on port `3000` by default. `npm start` starts it without the
-development watch mode. `npm run check` checks JavaScript syntax.
+The API listens on port `3000` by default. `npm run dev` also opens a browser
+using a Windows-specific command. `npm start` starts without watch mode and
+expects its environment to have already been supplied. `npm run check` checks
+JavaScript syntax.
+
+## Production Deployment
+
+The supplied service installer targets Debian or Ubuntu with rootless Podman,
+systemd user services (Quadlet), Nginx, and Certbot. Run it from a normal SSH
+account, not as root. The account needs working rootless Podman, `sudo`, and
+OpenSSL; the script installs Nginx, Certbot, and curl if missing. Point the
+public domain's DNS at the server and allow HTTP and HTTPS before deployment.
+The installer configures the host's Nginx site and obtains a certificate; review
+the script and the existing host configuration before running it.
+
+```sh
+./ops/deploy-service.sh --domain auth.example.org --email admin@example.org
+```
+
+On first installation, the script prompts for Google credentials, authorized
+applications, each application's Drive and multi-file options, and an optional
+email allowlist. It generates an encryption key and writes the configuration to
+`~/.config/nicolabz-identity/identity.env` with mode `600`. Use
+`./ops/deploy-service.sh --help` for all options; `--configure-env` revisits
+the interactive configuration. Keeping the existing application list preserves
+its settings. Rebuilding the list replaces it, so re-enter every application
+and its options. Reconfiguration retains an existing encryption key.
+
+The installer uses one container listening on port `3000`, published only as
+`127.0.0.1:3001` on the host. Nginx terminates HTTPS and proxies to that host
+port. The SQLite database is in
+`/var/volumes/nicolabz-identity/identity.sqlite`, bind-mounted at `/app/data`;
+configuration and credentials are kept outside the data directory. The script
+enables user lingering and creates a rootless Quadlet service.
+
+Production `PUBLIC_BASE_URL` and configured application origins must use
+HTTPS. Applications should be on the same site as the API for the session
+cookie's `SameSite=Lax` behavior; locally, use `localhost` consistently instead
+of mixing it with `127.0.0.1`.
+
+### Standalone Podman
+
+For an existing reverse proxy without the installer-managed Quadlet, prepare
+`~/.config/nicolabz-identity/identity.env` from
+`ops/production.env.example`. Restrict it to the deploying user, set the
+Google credentials and client applications, and set
+`TOKEN_ENCRYPTION_KEY_BASE64` to a new key from `npm run secret` **only for a
+new installation**. Do not replace the key of an existing installation.
+Keep `PORT=3000`: `3001` is the published host port, not the container port.
+
+```sh
+./ops/deploy-podman.sh
+```
+
+Run this command from the repository root as the rootless Podman user. The
+script binds `127.0.0.1:3001` to container port `3000` and uses the same host
+data directory. `ENV_FILE` may select another environment file. Configure
+HTTPS and the reverse proxy separately. This standalone mode refuses to run
+when the installer-managed Quadlet file exists; use the redeployment command
+below for that service.
+
+### Verification, updates, and backups
+
+```sh
+systemctl --user status nicolabz-identity.service
+journalctl --user -u nicolabz-identity.service -n 100 --no-pager
+curl -fsS http://127.0.0.1:3001/health
+curl -fsS https://auth.example.org/health
+```
+
+The service and journal commands apply to the Quadlet installation. For
+standalone Podman, use `podman ps` and
+`podman logs --tail 100 nicolabz-identity`. A successful health response checks
+the API and SQLite only; test `/demo` with a Google account separately.
+
+Back up SQLite and the encryption key securely before updating. For a live
+SQLite database, use SQLite's online backup rather than copying only the
+database file while WAL is active. For example, with the `sqlite3` CLI:
+
+```sh
+mkdir -p "$HOME/backups"
+sqlite3 /var/volumes/nicolabz-identity/identity.sqlite \
+  ".backup '$HOME/backups/nicolabz-identity-$(date +%F-%H%M%S).sqlite'"
+```
+
+Back up the encryption key separately and do not print or publish the
+environment file. After updating the checkout, redeploy the Quadlet service:
+
+```sh
+./ops/redeploy-service.sh
+```
+
+The redeployment script builds the image, restarts the service, and checks
+`127.0.0.1:3001/health`. `--skip-build` reuses the existing image. It does not
+change the environment, Nginx, certificate, or SQLite data. For standalone
+Podman, run `./ops/deploy-podman.sh` again instead.
+
+Neither installer automatically migrates or deletes the old named Podman
+volume `nicolabz-identity-data`. If it contains needed data, plan and verify a
+backup and migration before using the new host directory. Keep a compatible
+previous image and database backup for rollback.
+
+`./ops/clean-service.sh --dry-run` displays the Quadlet cleanup plan. Normal
+cleanup preserves SQLite data and credentials. Its optional `--purge` mode is
+destructive and requires explicit confirmation; review its help and backups
+before using it.
 
 ## Home Page Applications
 

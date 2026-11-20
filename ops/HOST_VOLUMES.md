@@ -14,7 +14,7 @@ The Quadlet uses `UserNS=keep-id`, plus the current user's UID and GID, to write
 ## First installation
 
 ```bash
-./ops/deploy-vps.sh --domain auth.example.com --email admin@example.com
+./ops/deploy-service.sh --domain auth.example.com --email admin@example.com
 ```
 
 During deployment the script prepares the host data directory before starting the container. It does not modify Nginx or Let's Encrypt behavior.
@@ -43,9 +43,9 @@ If an old standalone container named `nicolabz-identity` exists, the new install
 
 ## Redeploy and cleanup
 
-`./ops/redeploy-app.sh` continues to work unchanged and preserves the data directory.
+`./ops/redeploy-service.sh` rebuilds and restarts the service while preserving the data directory.
 
-The updated `./ops/clean-vps.sh` preserves `/var/volumes/nicolabz-identity` during normal uninstall. With `--purge`, it removes that directory after explicit confirmation. The old named volume is never deleted automatically. Both operations are irreversible. Back up your SQLite data before using `--purge`.
+`./ops/clean-service.sh` preserves `/var/volumes/nicolabz-identity` during normal uninstall. With `--purge`, it removes that directory after explicit confirmation. The old named volume is never deleted automatically. Purging data is irreversible. Back up your SQLite data before using `--purge`.
 
 ## Security
 

@@ -12,7 +12,7 @@ readonly IMAGE_NAME="localhost/nicolabz-identity:latest"
 readonly UNIT_NAME="${APP_NAME}.service"
 readonly QUADLET_FILE="${HOME}/.config/containers/systemd/${APP_NAME}.container"
 readonly ENV_FILE="${HOME}/.config/nicolabz-identity/identity.env"
-readonly HEALTH_URL="http://127.0.0.1:3000/health"
+readonly HEALTH_URL="http://127.0.0.1:3001/health"
 
 SKIP_BUILD=false
 
@@ -21,7 +21,7 @@ fail() { printf '[ERROR] %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'USAGE'
-Usage: ./ops/redeploy-app.sh [--skip-build]
+Usage: ./ops/redeploy-service.sh [--skip-build]
 
 Rebuild the local image and restart the existing rootless Quadlet service.
 No changes to Nginx, Certbot, the SQLite volume or environment variables.
@@ -44,8 +44,8 @@ parse_arguments() {
 check_prerequisites() {
   (( EUID != 0 )) || fail 'Run as the rootless Podman user, without sudo.'
   [[ -f "$PROJECT_DIR/Containerfile" ]] || fail "Containerfile not found in $PROJECT_DIR."
-  [[ -f "$QUADLET_FILE" ]] || fail "Quadlet is missing: $QUADLET_FILE. Run deploy-vps.sh first."
-  [[ -f "$ENV_FILE" ]] || fail "Configuration is missing: $ENV_FILE. Run deploy-vps.sh first."
+  [[ -f "$QUADLET_FILE" ]] || fail "Quadlet is missing: $QUADLET_FILE. Run deploy-service.sh first."
+  [[ -f "$ENV_FILE" ]] || fail "Configuration is missing: $ENV_FILE. Run deploy-service.sh first."
 
   command -v podman >/dev/null || fail 'Podman is not installed.'
   command -v systemctl >/dev/null || fail 'systemctl is not available.'
@@ -53,7 +53,7 @@ check_prerequisites() {
 
   podman info >/dev/null || fail 'Podman rootless is unavailable for this user.'
   systemctl --user cat "$UNIT_NAME" >/dev/null 2>&1 || \
-    fail "Quadlet service $UNIT_NAME is not registered. Run deploy-vps.sh first."
+    fail "Quadlet service $UNIT_NAME is not registered. Run deploy-service.sh first."
 }
 
 build_image() {
