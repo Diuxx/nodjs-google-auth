@@ -15,9 +15,14 @@ export function parseClientApps(raw, isProduction) {
 
   const result = new Map();
   const origins = new Set();
+  const driveRequiredApps = new Set();
   for (const app of apps) {
     if (!app || typeof app.id !== 'string' || !APP_ID_PATTERN.test(app.id) || result.has(app.id)) {
       throw new Error('Identifiant d’application invalide ou dupliqué.');
+    }
+    const requiresDrive = app.requiresDrive === undefined ? false : app.requiresDrive;
+    if (typeof requiresDrive !== 'boolean') {
+      throw new Error(`L’option requiresDrive de ${app.id} doit être un booléen.`);
     }
     if (!Array.isArray(app.origins) || !app.origins.length) {
       throw new Error(`L’application ${app.id} doit déclarer des origines.`);
@@ -35,8 +40,9 @@ export function parseClientApps(raw, isProduction) {
       origins.add(value);
     }
     result.set(app.id, allowed);
+    if (requiresDrive) driveRequiredApps.add(app.id);
   }
-  return { apps: result, origins };
+  return { apps: result, origins, driveRequiredApps };
 }
 
 export function validateReturnUrl(clientApps, appId, returnTo) {

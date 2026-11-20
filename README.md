@@ -10,6 +10,8 @@
 - **Accueil intégré** : `/` présente le service, son état local et les compteurs anonymisés provenant de SQLite.
 - **Page de test intégrée** : `/demo`, connexion Google, consentement Drive et création d’un vrai fichier `.txt` dans « Mon Drive », sans serveur frontend supplémentaire.
 
+For per-application Drive settings and Google Cloud setup, see [docs/USAGE.md](docs/USAGE.md).
+
 > **Portée importante** : ceci est une **API centralisée avec Google comme fournisseur OpenID Connect**, et **non un fournisseur OIDC universel**. Les clients sont des applications web s'exécutant dans le navigateur, sur les origines explicitement autorisées. Pour connecter des outils tiers exigeant une découverte OIDC (`/.well-known/openid-configuration`), il faudra ajouter un véritable serveur OIDC (ex. `oidc-provider`) ou déployer Authentik. Les cookies de session ne sont jamais partagés entre les applications : chaque application interroge l'API centrale.
 
 ## Accueil et statistiques (v0.1.4)
@@ -81,7 +83,7 @@ Console : https://console.cloud.google.com/
 1. **Créer un projet Google Cloud** (ou en sélectionner un existant).
 2. **APIs & Services → Library** : activer **Google Drive API**.
 3. **Google Auth Platform / OAuth consent screen** : configurer le nom de l'application, l'adresse e-mail de support, les domaines autorisés et le type d'audience (*External* pour des comptes Google personnels). Ajouter les comptes utilisateurs à la liste des **test users** tant que le projet est en mode Testing.
-4. Dans les autorisations (*Data Access*), déclarer les scopes nécessaires : `openid`, `email`, `profile` pour la connexion, **`https://www.googleapis.com/auth/drive.appdata`** pour les JSON de synchronisation et **`https://www.googleapis.com/auth/drive.file`** pour créer un fichier `.txt` visible dans « Mon Drive ». Les permissions Drive sont demandées **séparément**, seulement lors d’une demande d’accès au Drive. La page `/demo` demande les deux scopes Drive ; les autres applications continuent de demander `drive.appdata` uniquement.
+4. In **Data Access**, declare the scopes used by the server: `openid`, `email`, and `profile` for identity; **`https://www.googleapis.com/auth/drive.appdata`** for sync JSON; and **`https://www.googleapis.com/auth/drive.file`** for the internal `/demo` visible text-file feature. Apps with `"requiresDrive":true` in `CLIENT_APPS_JSON` request identity and `drive.appdata` together at login; other apps keep identity-only login and can authorize Drive separately.
 5. **Clients → Create client → Web application**. Utiliser le **même client OAuth Google** pour toutes tes applications web : seul le serveur central communique avec Google.
 6. Déclarer **exactement** ces **Authorized redirect URIs** :
 
@@ -308,7 +310,7 @@ async function saveTodo(version, tasks) {
 }
 ```
 
-Pour un nouvel outil, **déclarer un identifiant unique et son origine** dans `CLIENT_APPS_JSON`, puis utiliser cet identifiant comme namespace dans `/api/sync/:appId`. **Une origine ne peut appartenir qu'à une seule application**. Les tokens Google sont confinés au serveur et ne sont pas renvoyés aux clients.
+Pour un nouvel outil, **déclarer un identifiant unique et son origine** dans `CLIENT_APPS_JSON`, puis utiliser cet identifiant comme namespace dans `/api/sync/:appId`. Set `"requiresDrive":true` there only when that application needs Drive during login; leaving it out preserves identity-only login. **Une origine ne peut appartenir qu'à une seule application**. Les tokens Google sont confinés au serveur et ne sont pas renvoyés aux clients.
 
 ## 6. Contrat HTTP
 

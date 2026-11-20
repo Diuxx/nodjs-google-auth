@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { loadConfig } from '../src/config.js';
 import { createApp } from '../src/http/app.js';
 
-function fixture({ user = null, drive = {} } = {}) {
+function fixture({ user = null, drive = {}, authOverrides = {}, google = {}, onDisconnect = () => {} } = {}) {
   const config = loadConfig({
     NODE_ENV: 'production',
     PUBLIC_BASE_URL: 'https://auth.nicolabz.dev',
@@ -12,9 +12,13 @@ function fixture({ user = null, drive = {} } = {}) {
     TOKEN_ENCRYPTION_KEY_BASE64: Buffer.alloc(32, 7).toString('base64'),
     CLIENT_APPS_JSON: '[{"id":"todo","origins":["https://todo.nicolabz.dev"]}]'
   });
+  const encryptedRefreshToken = config.cipher.encrypt('test-refresh-token');
   const repo = {
     sessions: { find: token => token === 'demo-session' ? user : null, remove: () => {} },
-    drive: { getEncryptedToken: () => user ? 'encrypted-refresh-token' : null },
+    drive: {
+      getEncryptedToken: () => user ? encryptedRefreshToken : null,
+      disconnect: onDisconnect
+    },
     statistics: { overview: () => ({ totalUsers: 6, activeUsers: 2, connectedDrives: 3 }) }
   };
   const auth = {
@@ -22,10 +26,11 @@ function fixture({ user = null, drive = {} } = {}) {
       assert.equal(appId, 'demo');
       assert.equal(returnTo, 'https://auth.nicolabz.dev/demo');
       return { browserToken: 'test-token', redirectUrl: 'https://accounts.google.com/o/oauth2/v2/auth' };
-    }
+    },
+    ...authOverrides
   };
   return createApp({
-    config, repo, auth, google: {}, sync: {}, drive,
+    config, repo, auth, google, sync: {}, drive,
     database: { prepare: () => ({ get: () => ({ 1: 1 }) }) }
   });
 }
@@ -131,6 +136,53 @@ test('HTTP /demo : création TXT authentifiée, origine unique et validation JSO
   assert.equal(invalid.statusCode, 400);
   assert.equal(invalid.json().error.code, 'INVALID_FILENAME');
   assert.equal(writes.length, 1);
+});
+
+test('Refus du consentement Google ne crée pas de session et préserve la session existante', async t => {
+  let callbackCalled = false;
+  const user = { id: 42, googleSub: 'sub-42', name: 'Test', email: 'test@example.org' };
+  const app = await fixture({
+    user,
+    authOverrides: { callback: async () => { callbackCalled = true; } }
+  });
+  t.after(() => app.close());
+
+  const refused = await app.inject({
+    method: 'GET', url: '/auth/google/callback?error=access_denied',
+    headers: { cookie: '__Host-nicolabz_sid=demo-session' }
+  });
+  assert.equal(refused.statusCode, 400);
+  assert.equal(refused.json().error.code, 'GOOGLE_AUTH_DECLINED');
+  assert.equal(callbackCalled, false);
+
+  const session = await app.inject({
+    method: 'GET', url: '/api/session',
+    headers: { cookie: '__Host-nicolabz_sid=demo-session' }
+  });
+  assert.deepEqual(session.json(), {
+    authenticated: true, user: { id: 42, email: 'test@example.org', name: 'Test' },
+    driveConnected: true
+  });
+});
+
+test('Une révocation locale supprime le jeton même si Google l’a déjà révoqué', async t => {
+  let revoked = false;
+  let disconnected = false;
+  const user = { id: 42, googleSub: 'sub-42', name: 'Test', email: 'test@example.org' };
+  const app = await fixture({
+    user,
+    google: { revoke: async () => { revoked = true; throw new Error('token already revoked'); } },
+    onDisconnect: () => { disconnected = true; }
+  });
+  t.after(() => app.close());
+
+  const response = await app.inject({
+    method: 'POST', url: '/api/drive/disconnect',
+    headers: { origin: 'https://todo.nicolabz.dev', cookie: '__Host-nicolabz_sid=demo-session' }
+  });
+  assert.equal(response.statusCode, 200);
+  assert.equal(revoked, true);
+  assert.equal(disconnected, true);
 });
 
 

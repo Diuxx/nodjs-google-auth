@@ -6,14 +6,21 @@ const { OAuth2Client } = googleAuth;
 const DRIVE_SCOPE = 'https://www.googleapis.com/auth/drive.appdata';
 const DRIVE_FILE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
-function requestedScopes(flow) {
-  if (flow.type === 'login') return ['openid', 'email', 'profile'];
+function requestedScopes(flow, clientApps) {
+  if (flow.type === 'login') {
+    return clientApps.driveRequiredApps.has(flow.appId)
+      ? ['openid', 'email', 'profile', DRIVE_SCOPE]
+      : ['openid', 'email', 'profile'];
+  }
   return flow.appId === 'demo'
     ? ['openid', 'email', DRIVE_SCOPE, DRIVE_FILE_SCOPE]
     : ['openid', 'email', DRIVE_SCOPE];
 }
 
 export function createGoogleAuth(config) {
+  const requiresDrive = flow => flow.type === 'drive' ||
+    (flow.type === 'login' && config.clientApps.driveRequiredApps.has(flow.appId));
+
   const clientFor = (type) => new OAuth2Client(
     config.googleClientId,
     config.googleClientSecret,
@@ -24,13 +31,15 @@ export function createGoogleAuth(config) {
     buildAuthorizationUrl(flow, state) {
       const client = clientFor(flow.type);
       return client.generateAuthUrl({
-        scope: requestedScopes(flow),
+        scope: requestedScopes(flow, config.clientApps),
         state,
         nonce: flow.nonce,
         code_challenge: sha256Base64Url(flow.codeVerifier),
         code_challenge_method: 'S256',
-        access_type: flow.type === 'drive' ? 'offline' : 'online',
-        ...(flow.type === 'drive' ? { prompt: 'consent', include_granted_scopes: true } : {})
+        access_type: requiresDrive(flow) ? 'offline' : 'online',
+        ...(flow.type === 'drive'
+          ? { prompt: 'consent', include_granted_scopes: true }
+          : requiresDrive(flow) ? { include_granted_scopes: true } : {})
       });
     },
     async exchangeCode(flow, code) {
@@ -52,7 +61,7 @@ export function createGoogleAuth(config) {
       requireCondition(payload?.nonce === flow.nonce, 401, 'INVALID_NONCE', 'Nonce OpenID invalide.');
       requireCondition(payload?.sub && payload.email && (payload.email_verified === true || payload.email_verified === 'true'),
         403, 'UNVERIFIED_EMAIL', 'Compte Google avec e-mail vérifié requis.');
-      if (flow.type === 'drive') {
+      if (requiresDrive(flow)) {
         const scopes = (tokens.scope || '').split(' ');
         requireCondition(scopes.includes(DRIVE_SCOPE), 403, 'DRIVE_PERMISSION_MISSING', 'Autorisation Google Drive manquante.');
         if (flow.appId === 'demo') {

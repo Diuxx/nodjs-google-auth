@@ -37,3 +37,15 @@ test('Origines déclarées : rejette les retours malveillants et les croisements
   assert.doesNotThrow(() => requireAppOrigin(apps, 'todo', 'https://todo.nicolabz.dev'));
   assert.throws(() => parseClientApps('[{"id":"todo","origins":["http://evil.com"]}]', true));
 });
+
+test('requiresDrive est optionnel pour les anciennes configurations et strictement booléen', () => {
+  const apps = parseClientApps(JSON.stringify([
+    { id: 'todo', origins: ['https://todo.example.org'] },
+    { id: 'pecule', origins: ['https://pecule.example.org'], requiresDrive: true }
+  ]), true);
+  assert.equal(apps.driveRequiredApps.has('todo'), false);
+  assert.equal(apps.driveRequiredApps.has('pecule'), true);
+  assert.throws(() => parseClientApps(JSON.stringify([
+    { id: 'todo', origins: ['https://todo.example.org'], requiresDrive: 'true' }
+  ]), true), /requiresDrive.*booléen/);
+});

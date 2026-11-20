@@ -37,7 +37,15 @@ export function createAuthService({ config, repo, google, clock = () => Date.now
         if (config.allowedEmails.size && !config.allowedEmails.has(result.user.email.toLowerCase())) {
           throw new AppError(403, 'USER_NOT_ALLOWED', 'Ce compte Google n’est pas autorisé.');
         }
+        const requiresDrive = config.clientApps.driveRequiredApps.has(flow.appId);
+        const existingUser = requiresDrive ? repo.users.findByGoogleSub(result.user.sub) : null;
+        const previous = existingUser ? repo.drive.getEncryptedToken(existingUser.id) : null;
+        requireCondition(!requiresDrive || result.refreshToken || previous, 400, 'MISSING_REFRESH_TOKEN',
+          'Google n’a pas fourni de refresh token. Révoque puis reconnecte l’application dans ton compte Google.');
         const user = repo.users.upsert(result.user);
+        if (requiresDrive && result.refreshToken) {
+          repo.drive.saveEncryptedToken(user.id, config.cipher.encrypt(result.refreshToken));
+        }
         sessionToken = randomToken();
         repo.sessions.create(sessionToken, user.id, clock() + config.sessionDurationMs);
       } else {
