@@ -19,6 +19,25 @@ npm run dev
 The API listens on port `3000` by default. `npm start` starts it without the
 development watch mode. `npm run check` checks JavaScript syntax.
 
+## Home Page Applications
+
+The public home page and `GET /api/public/applications` expose registered
+application IDs and their `requiresDrive` and `multiple` settings, excluding
+the internal demo. They do not expose origins, credentials, or file names.
+`requiresDrive: false` means Drive is optional at login, not forbidden.
+Protect the service at the reverse proxy if application IDs or settings
+should not be public.
+
+The **Compter mes fichiers** button counts JSON sync files only for the
+currently signed-in Google account. It explicitly reads Drive on demand;
+it does not create, change, or synchronize files. A count includes the
+classic single-file document and any named multi-file documents, even if
+multi-file mode is currently disabled. An unavailable or revoked Drive
+authorization produces an unavailable count, not zero.
+
+The count endpoint requires a session and the exact `PUBLIC_BASE_URL` origin,
+and does not expose file names or counts to other application origins.
+
 ## Google Cloud
 
 Configure the Google OAuth consent screen and a **Web application** OAuth
@@ -85,10 +104,10 @@ even if Google has already revoked it. It does not delete sync indexes or
 Drive documents. An externally revoked or expired token can be reauthorized
 through the separate Drive flow.
 
-Login and authorization do not synchronize application data. Sync still
-occurs only when a client explicitly calls `GET` or `PUT /api/sync/:appId`.
-No schema migration is required, and existing encrypted credentials and sync
-documents remain in place when the policy is changed.
+Login and authorization do not synchronize application data. Sync occurs
+only when a client explicitly calls the sync API. No schema migration is
+required, and existing encrypted credentials and sync documents remain in
+place when the policy is changed.
 
 After changing the environment configuration, restart or redeploy the server.
 Keep the same OAuth client, callback URLs, SQLite database, and encryption key.
@@ -108,6 +127,68 @@ Use the configured app ID as the sync namespace, include
 `credentials: 'include'` in browser API requests, and send the returned sync
 version with each write. A `409 SYNC_CONFLICT` requires the client to reload
 and resolve the conflict; the server does not merge documents automatically.
+
+## Multiple JSON Files
+
+Set `multiple` to `true` for each application that needs multiple files:
+
+```dotenv
+CLIENT_APPS_JSON=[{"id":"pecule","origins":["https://pecule.nicolabz.dev"],"requiresDrive":true,"multiple":true},{"id":"batch","origins":["https://batch.nicolabz.dev"],"multiple":false}]
+```
+
+The option must be a boolean; omitted or `false` disables the new routes.
+It is independent of `requiresDrive`: an app can request Drive during login
+or use the existing separate Drive authorization flow.
+
+The following routes require an authenticated session, Drive access, the
+registered origin for `appId`, and `multiple: true`. Include
+`credentials: 'include'` in browser requests.
+
+| Method | Route | Result |
+| --- | --- | --- |
+| GET | `/api/sync/:appId/files` | `{ "appId": "pecule", "files": ["budgets.json", "comptes.json"] }` |
+| GET | `/api/sync/:appId/files/:name` | The named document, or `404 SYNC_FILE_NOT_FOUND` |
+| PUT | `/api/sync/:appId/files/:name` | Create or update a JSON document |
+
+Names must start with an ASCII letter or digit and contain only ASCII letters,
+digits, `_`, or `-` before the lowercase `.json` extension. The base name is
+1–96 characters. Names are case-sensitive; Drive IDs are never supplied by
+the client.
+
+Create `comptes.json` by sending `PUT /api/sync/pecule/files/comptes.json`
+with `Content-Type: application/json`:
+
+```json
+{"version":0,"data":{"accounts":[]}}
+```
+
+The response contains the filename, new version, timestamp and data:
+
+```json
+{"appId":"pecule","name":"comptes.json","version":1,"updatedAt":"2026-01-01T00:00:00.000Z","data":{"accounts":[]}}
+```
+
+For updates, send the last known version. Stale versions return
+`409 SYNC_CONFLICT` without writing. Lists include all pages, sorted by name.
+If Drive contains duplicate folder or file names, the API reports
+`409 DUPLICATE_DRIVE_FILES` instead of choosing one.
+
+The server creates a folder named `nicolabz.<appId>` inside each user's
+private `appDataFolder` on the first write. The Google OAuth client and this
+space are shared across applications: folder names are an organization
+mechanism, while the API enforces session and origin isolation. Reads and
+lists do not create folders or files.
+
+Existing single-file routes and their `nicolabz.<appId>.json` documents stay
+available even when `multiple` is enabled. No data is moved or copied
+automatically. To switch an existing client, explicitly read its old document
+and copy it into a new named file using the API, verifying the result before
+making any separate cleanup decision.
+
+The service provides no multi-file deletion, rename, automatic migration or
+automatic sync. It uses in-memory locks within one server process; do not run
+multiple writing instances against the same data. The existing 1 MiB HTTP
+request body limit applies to each write.
 
 ## Data and Troubleshooting
 

@@ -7,7 +7,13 @@ function registerRoutes(overrides = {}) {
   const routes = new Map();
   const app = { get(path, handler) { routes.set(path, handler); } };
   const repo = { statistics: { overview: () => ({ totalUsers: 12, activeUsers: 3, connectedDrives: 4 }) } };
-  registerHomeRoutes(app, { repo: overrides.repo ?? repo, registeredApplications: 2 });
+  const clientApps = {
+    apps: new Map([['pecule', new Set(['https://pecule.example.org'])],
+      ['batch', new Set(['https://batch.example.org'])], ['demo', new Set(['https://auth.example.org'])]]),
+    driveRequiredApps: new Set(['pecule']),
+    multipleApps: new Set(['pecule'])
+  };
+  registerHomeRoutes(app, { repo: overrides.repo ?? repo, clientApps });
   return routes;
 }
 
@@ -38,6 +44,17 @@ test('La page accueil est servie par Node et présente le service sans script in
     assert.match(asset.headers['content-type'], new RegExp(`^${expectedType}`));
     assert.ok(asset.body.length > 0);
   }
+});
+
+test('Les applications publiques exposent uniquement leur identifiant et leurs options', async () => {
+  const routes = registerRoutes();
+  const response = await routes.get('/api/public/applications')({}, reply());
+  assert.equal(response.headers['cache-control'], 'no-store');
+  assert.deepEqual(response.body, { applications: [
+    { id: 'pecule', requiresDrive: true, multiple: true },
+    { id: 'batch', requiresDrive: false, multiple: false }
+  ] });
+  assert.doesNotMatch(JSON.stringify(response.body), /example\.org|demo|email|token/);
 });
 
 test('Le statut public ne contient que les compteurs agrégés et une santé locale', async () => {

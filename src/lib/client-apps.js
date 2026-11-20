@@ -16,6 +16,7 @@ export function parseClientApps(raw, isProduction) {
   const result = new Map();
   const origins = new Set();
   const driveRequiredApps = new Set();
+  const multipleApps = new Set();
   for (const app of apps) {
     if (!app || typeof app.id !== 'string' || !APP_ID_PATTERN.test(app.id) || result.has(app.id)) {
       throw new Error('Identifiant d’application invalide ou dupliqué.');
@@ -23,6 +24,10 @@ export function parseClientApps(raw, isProduction) {
     const requiresDrive = app.requiresDrive === undefined ? false : app.requiresDrive;
     if (typeof requiresDrive !== 'boolean') {
       throw new Error(`L’option requiresDrive de ${app.id} doit être un booléen.`);
+    }
+    const multiple = app.multiple === undefined ? false : app.multiple;
+    if (typeof multiple !== 'boolean') {
+      throw new Error(`L’option multiple de ${app.id} doit être un booléen.`);
     }
     if (!Array.isArray(app.origins) || !app.origins.length) {
       throw new Error(`L’application ${app.id} doit déclarer des origines.`);
@@ -41,8 +46,9 @@ export function parseClientApps(raw, isProduction) {
     }
     result.set(app.id, allowed);
     if (requiresDrive) driveRequiredApps.add(app.id);
+    if (multiple) multipleApps.add(app.id);
   }
-  return { apps: result, origins, driveRequiredApps };
+  return { apps: result, origins, driveRequiredApps, multipleApps };
 }
 
 export function validateReturnUrl(clientApps, appId, returnTo) {

@@ -67,6 +67,13 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
     return user;
   }
 
+  function requireMultipleSyncAccess(request) {
+    const user = requireSyncAccess(request);
+    requireCondition(config.clientApps.multipleApps.has(request.params.appId),
+      403, 'MULTIPLE_SYNC_DISABLED', 'La synchronisation multi-fichiers est désactivée pour cette application.');
+    return user;
+  }
+
   function beginFlow(type, request, reply) {
     const user = type === 'drive' ? requireUser(request) : null;
     const { browserToken, redirectUrl } = auth.start(type, request.query.app, request.query.return_to, user);
@@ -89,7 +96,7 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
     return reply.redirect(result.returnUrl);
   }
 
-  registerHomeRoutes(app, { repo, registeredApplications: config.clientApps.apps.size - 1 });
+  registerHomeRoutes(app, { repo, clientApps: config.clientApps });
   registerDemoRoutes(app, config.publicBaseUrl);
   registerDemoTextRoutes(app, { config, drive, requireUser });
 
@@ -107,6 +114,17 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
     return { authenticated: Boolean(user), user: user ? {
       id: user.id, email: user.email, name: user.name, picture: user.picture
     } : null, driveConnected: Boolean(user && repo.drive.getEncryptedToken(user.id)) };
+  });
+
+  app.post('/api/home/applications/:appId/file-count', async (request, reply) => {
+    requireCondition(request.headers.origin === config.publicBaseUrl,
+      403, 'ORIGIN_FORBIDDEN', 'Origine non autorisée.');
+    const user = requireUser(request);
+    const { appId } = request.params;
+    requireCondition(appId !== 'demo' && config.clientApps.apps.has(appId),
+      404, 'UNKNOWN_APP', 'Application inconnue.');
+    const counts = await sync.countFiles(user.id, appId);
+    return reply.header('Cache-Control', 'no-store').send({ appId, ...counts });
   });
 
   app.post('/api/logout', async (request, reply) => {
@@ -131,6 +149,32 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
   app.get('/api/sync/:appId', async request => {
     const user = requireSyncAccess(request);
     return sync.get(user.id, request.params.appId);
+  });
+
+  app.get('/api/sync/:appId/files', async request => {
+    const user = requireMultipleSyncAccess(request);
+    return sync.listFiles(user.id, request.params.appId);
+  });
+
+  app.get('/api/sync/:appId/files/:name', async request => {
+    const user = requireMultipleSyncAccess(request);
+    return sync.getFile(user.id, request.params.appId, request.params.name);
+  });
+
+  app.put('/api/sync/:appId/files/:name', {
+    schema: {
+      body: {
+        type: 'object', required: ['version', 'data'], additionalProperties: false,
+        properties: {
+          version: { type: 'integer', minimum: 0 },
+          data: { anyOf: [{ type: 'object' }, { type: 'array' }] }
+        }
+      }
+    }
+  }, async request => {
+    const user = requireMultipleSyncAccess(request);
+    return sync.putFile(user.id, request.params.appId, request.params.name,
+      request.body.version, request.body.data);
   });
 
   app.put('/api/sync/:appId', {

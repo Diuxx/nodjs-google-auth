@@ -74,6 +74,19 @@
         </article>
       </section>
 
+      <section class="detail-panel applications-panel" aria-labelledby="applications-title">
+        <div class="section-heading applications-heading">
+          <div>
+            <h2 id="applications-title">Applications autorisées</h2>
+            <p class="applications-help">Configuration publique ; le nombre de fichiers concerne uniquement votre compte Google connecté.</p>
+          </div>
+          <button id="count-files" class="count-button" type="button" disabled>Compter mes fichiers</button>
+        </div>
+        <p id="applications-message" class="applications-message" role="status">Chargement des applications…</p>
+        <ul id="applications-list" class="applications-list" aria-label="Applications configurées"></ul>
+        <p class="applications-help">Le comptage inclut les fichiers JSON classiques et multiples ; il lit Drive sans modifier les données.</p>
+      </section>
+
       <div class="detail-grid">
         <section class="detail-panel" aria-labelledby="modules-title">
           <div class="section-heading">

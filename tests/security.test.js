@@ -49,3 +49,19 @@ test('requiresDrive est optionnel pour les anciennes configurations et stricteme
     { id: 'todo', origins: ['https://todo.example.org'], requiresDrive: 'true' }
   ]), true), /requiresDrive.*booléen/);
 });
+
+test('Le mode multiple est facultatif et strictement booléen', () => {
+  const apps = parseClientApps(JSON.stringify([
+    { id: 'legacy', origins: ['https://legacy.example.org'] },
+    { id: 'disabled', origins: ['https://disabled.example.org'], multiple: false },
+    { id: 'pecule', origins: ['https://pecule.example.org'], multiple: true }
+  ]), true);
+  assert.equal(apps.multipleApps.has('legacy'), false);
+  assert.equal(apps.multipleApps.has('disabled'), false);
+  assert.equal(apps.multipleApps.has('pecule'), true);
+  for (const invalid of ['true', null, 1]) {
+    assert.throws(() => parseClientApps(JSON.stringify([
+      { id: 'pecule', origins: ['https://pecule.example.org'], multiple: invalid }
+    ]), true), /multiple.*booléen/);
+  }
+});

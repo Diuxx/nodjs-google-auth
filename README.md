@@ -11,6 +11,8 @@
 - **Page de test intégrée** : `/demo`, connexion Google, consentement Drive et création d’un vrai fichier `.txt` dans « Mon Drive », sans serveur frontend supplémentaire.
 
 For per-application Drive settings and Google Cloud setup, see [docs/USAGE.md](docs/USAGE.md).
+The same guide describes optional multi-file JSON sync via `multiple: true`.
+The home page publicly shows application IDs and settings; signed-in users can request their own Drive file counts.
 
 > **Portée importante** : ceci est une **API centralisée avec Google comme fournisseur OpenID Connect**, et **non un fournisseur OIDC universel**. Les clients sont des applications web s'exécutant dans le navigateur, sur les origines explicitement autorisées. Pour connecter des outils tiers exigeant une découverte OIDC (`/.well-known/openid-configuration`), il faudra ajouter un véritable serveur OIDC (ex. `oidc-provider`) ou déployer Authentik. Les cookies de session ne sont jamais partagés entre les applications : chaque application interroge l'API centrale.
 
