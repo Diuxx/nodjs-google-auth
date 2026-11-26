@@ -44,11 +44,12 @@ test('La connexion demo conserve la protection state et son URL de retour', asyn
   const config = testConfig();
   let pendingFlow;
   const repo = {
+    transaction: work => work(),
     flows: {
       create(flow) { pendingFlow = flow; },
       consume(_state) { const flow = pendingFlow; pendingFlow = undefined; return flow; }
     },
-    users: { upsert: user => ({ id: 12, ...user }) },
+    users: { findByIdentity: () => null, upsert: user => ({ id: 12, ...user }) },
     sessions: { create() {} }
   };
   const google = {
@@ -109,6 +110,7 @@ test('Le consentement Drive de demo reste lié au compte Google déjà connecté
   let pendingFlow;
   let stored;
   const repo = {
+    transaction: work => work(),
     flows: {
       create(flow) { pendingFlow = flow; },
       consume() { const flow = pendingFlow; pendingFlow = undefined; return flow; }

@@ -1,15 +1,17 @@
 # Architecture Summary
 
-Nicolabz Identity is a Node.js 22+ Fastify API for Google OpenID Connect
+Nicolabz Identity is a Node.js 22+ Fastify API for Google, Facebook and GitHub sign-in
 sessions shared across allowlisted browser applications, with optional
 per-application Google Drive authorization and explicit JSON synchronization.
 
 - `src/server.js` composes configuration, SQLite, OAuth, Drive, sync, and HTTP.
 - `src/lib/client-apps.js` validates server-declared app IDs and origins.
   `requiresDrive` and multi-file sync option `multiple` default to `false`.
-- `src/auth/` handles authorization-code OAuth with `state`, `nonce`, PKCE,
-  identity verification, and encrypted Drive refresh-token persistence.
-- `src/db/` stores users, opaque sessions, temporary OAuth flows, encrypted
+- `src/auth/` orchestrates provider-specific authorization-code flows,
+  browser-bound state, identity linking, and encrypted Drive token persistence.
+  Google uses OpenID Connect/nonce and PKCE; GitHub uses PKCE and verified
+  email lookup; Facebook verifies the token and profile through Graph.
+- `src/db/` stores local users, provider identities, opaque sessions, temporary OAuth flows, encrypted
   Drive credentials, and per-app Drive file IDs.
 - `src/drive/` reads and writes JSON in each user's Drive `appDataFolder`;
   multi-file apps use per-app folders.
@@ -20,4 +22,4 @@ per-application Google Drive authorization and explicit JSON synchronization.
 
 Configuration is supplied through environment variables, especially
 `CLIENT_APPS_JSON`. Tests use the Node.js built-in test runner (`npm test`).
-See [USAGE.md](./USAGE.md) for Google Cloud and deployment configuration.
+See [USAGE.md](./USAGE.md) for provider and deployment configuration.

@@ -59,13 +59,14 @@ test('La liste des interfaces présente les routes fonctionnelles et leurs méth
   assert.deepEqual(endpoints, [
     'GET /health', 'GET /api/public/status', 'GET /api/public/applications',
     'GET /api/session', 'POST /api/logout', 'POST /api/drive/disconnect',
-    'GET /auth/google/start', 'GET /auth/google/callback',
+    'GET /auth/:provider/start', 'GET /auth/:provider/callback',
+    'GET /api/auth/providers', 'GET /api/auth/identities', 'POST /auth/:provider/link',
     'GET /auth/drive/start', 'GET /auth/drive/callback',
     'GET /api/sync/:appId', 'PUT /api/sync/:appId',
     'GET /api/sync/:appId/files', 'GET /api/sync/:appId/files/:name',
     'PUT /api/sync/:appId/files/:name', 'PATCH /api/sync/:appId/files/:name',
     'DELETE /api/sync/:appId/files/:name?version=N',
-    'GET /demo', 'GET /demo/login', 'GET /demo/drive',
+    'GET /demo', 'GET /demo/login', 'GET /demo/login/:provider', 'GET /demo/drive',
     'POST /api/demo/text-file', 'POST /api/home/applications/:appId/file-count'
   ]);
   assert.match(html, /multiple: true/);
@@ -98,6 +99,7 @@ test('Le compteur SQLite compte les utilisateurs uniques et les sessions non exp
   let readSql;
   let readParams;
   const db = {
+    transaction: work => work,
     prepare(sql) {
       readSql = sql;
       return { get(params) { readParams = params; return { totalUsers: 8, activeUsers: 2, connectedDrives: 1 }; } };

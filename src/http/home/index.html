@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#FAFAF8">
-  <meta name="description" content="Nicolabz Identity : tableau de bord du service d'authentification Google et de synchronisation Drive.">
+  <meta name="description" content="Nicolabz Identity : tableau de bord du service d'authentification multifournisseur et de synchronisation Drive.">
   <title>Nicolabz Identity · Vue d'ensemble</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="/theme/theme.css">
@@ -36,9 +36,9 @@
         <div class="overview-copy">
           <p class="eyebrow"><span class="eyebrow-line" aria-hidden="true"></span> AUTHENTIFICATION &amp; DATA SYNC</p>
           <h1 id="page-title">Une identité.<br><span>Plusieurs applications.</span></h1>
-          <p class="intro">API centralisée pour connecter les applications via Google, gérer les sessions et synchroniser leurs données JSON dans Google Drive.</p>
+          <p class="intro">API centralisée pour connecter les applications via Google, Facebook ou GitHub, gérer les sessions et synchroniser leurs données JSON dans Google Drive.</p>
           <div class="actions">
-            <a class="button primary" href="/demo">Tester avec Google <span aria-hidden="true">↗</span></a>
+            <a class="button primary" href="/demo">Tester la connexion <span aria-hidden="true">↗</span></a>
             <a class="button secondary" href="/api/public/status">Statut JSON <span aria-hidden="true">↗</span></a>
           </div>
         </div>
@@ -87,7 +87,7 @@
         <div class="section-heading applications-heading">
           <div>
             <h2 id="applications-title">Applications autorisées</h2>
-            <p class="applications-help">Configuration publique ; le nombre de fichiers concerne uniquement votre compte Google connecté.</p>
+            <p class="applications-help">Configuration publique ; le nombre de fichiers concerne uniquement votre compte connecté.</p>
           </div>
           <button id="count-files" class="count-button" type="button" disabled>Compter mes fichiers</button>
         </div>
@@ -104,7 +104,7 @@
           </div>
           <div class="module-row">
             <div class="module-code">01</div>
-            <div class="module-content"><strong>Google Auth</strong><p>OAuth 2.0 / OpenID Connect, sessions HTTP sécurisées</p></div>
+            <div class="module-content"><strong>Social Auth</strong><p>OAuth 2.0 / OpenID Connect, sessions HTTP sécurisées</p></div>
             <span class="chip enabled">Intégré</span>
           </div>
           <div class="module-row">
@@ -140,10 +140,13 @@
             <div class="endpoint-row"><span class="method write">POST</span><code>/api/drive/disconnect</code><span class="endpoint-note">Session</span></div>
           </details>
           <details class="endpoint-group">
-            <summary>Authentification Google et Drive</summary>
-            <p class="endpoint-help">Les démarrages nécessitent les paramètres <code>app</code> et <code>return_to</code>. Les callbacks sont réservés au retour Google.</p>
-            <div class="endpoint-row"><span class="method">GET</span><code>/auth/google/start</code><span class="endpoint-note">Connexion</span></div>
-            <div class="endpoint-row"><span class="method">GET</span><code>/auth/google/callback</code><span class="endpoint-note">Google</span></div>
+            <summary>Authentification et Drive</summary>
+            <p class="endpoint-help">Les démarrages nécessitent les paramètres <code>app</code> et <code>return_to</code>. Les callbacks sont réservés au retour du fournisseur.</p>
+            <div class="endpoint-row"><span class="method">GET</span><code>/auth/:provider/start</code><span class="endpoint-note">Connexion</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/auth/:provider/callback</code><span class="endpoint-note">Fournisseur</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/auth/providers</code><span class="endpoint-note">Public</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/api/auth/identities</code><span class="endpoint-note">Session</span></div>
+            <div class="endpoint-row"><span class="method write">POST</span><code>/auth/:provider/link</code><span class="endpoint-note">Association</span></div>
             <div class="endpoint-row"><span class="method">GET</span><code>/auth/drive/start</code><span class="endpoint-note">Session</span></div>
             <div class="endpoint-row"><span class="method">GET</span><code>/auth/drive/callback</code><span class="endpoint-note">Google</span></div>
           </details>
@@ -163,6 +166,7 @@
             <p class="endpoint-help">Le comptage et la création TXT exigent une session et l’origine du service.</p>
             <div class="endpoint-row"><span class="method">GET</span><code>/demo</code><a href="/demo" aria-label="Ouvrir la démonstration">↗</a></div>
             <div class="endpoint-row"><span class="method">GET</span><code>/demo/login</code><span class="endpoint-note">Démo</span></div>
+            <div class="endpoint-row"><span class="method">GET</span><code>/demo/login/:provider</code><span class="endpoint-note">Facebook / GitHub</span></div>
             <div class="endpoint-row"><span class="method">GET</span><code>/demo/drive</code><span class="endpoint-note">Session</span></div>
             <div class="endpoint-row"><span class="method write">POST</span><code>/api/demo/text-file</code><span class="endpoint-note">Démo</span></div>
             <div class="endpoint-row"><span class="method write">POST</span><code>/api/home/applications/:appId/file-count</code><span class="endpoint-note">Privé</span></div>
@@ -175,7 +179,7 @@
 
     <footer class="footer">
       <span>NICOLABZ / IDENTITY</span>
-      <span>Statut = contrôles locaux de l’API et SQLite, sans test des services Google.</span>
+      <span>Statut = contrôles locaux de l’API et SQLite, sans test des fournisseurs externes.</span>
     </footer>
   </div>
 </body>

@@ -1,8 +1,44 @@
+import { requireCondition } from '../lib/errors.js';
 import { hashToken } from '../lib/crypto.js';
 
 export function createRepositories(db, clock = () => Date.now()) {
   const now = () => clock();
+  const userColumns = 'u.id, g.provider_user_id AS googleSub, u.email, u.email_verified AS emailVerified, u.primary_provider AS primaryProvider, u.display_name AS name, u.picture_url AS picture';
+  const googleJoin = "LEFT JOIN user_identities g ON g.user_id=u.id AND g.provider='google'";
+  const findById = id => db.prepare(`SELECT ${userColumns} FROM users u ${googleJoin} WHERE u.id=?`).get(id);
+  const findByIdentity = (provider, sub) => db.prepare(`SELECT ${userColumns} FROM users u
+    JOIN user_identities i ON i.user_id=u.id ${googleJoin} WHERE i.provider=? AND i.provider_user_id=?`).get(provider, sub);
+  const linkIdentity = db.transaction((userId, provider, profile) => {
+    const owner = findByIdentity(provider, profile.sub);
+    requireCondition(!owner || owner.id === userId, 409, 'IDENTITY_ALREADY_LINKED',
+      'Cette identité est déjà associée à un autre compte.');
+    const existing = db.prepare('SELECT provider_user_id FROM user_identities WHERE user_id=? AND provider=?').get(userId, provider);
+    requireCondition(!existing || existing.provider_user_id === profile.sub, 409, 'PROVIDER_ALREADY_LINKED',
+      'Un autre compte de ce fournisseur est déjà associé.');
+    if (!existing) {
+      db.prepare('INSERT INTO user_identities VALUES (?, ?, ?, ?)').run(userId, provider, profile.sub, now());
+    }
+  });
+  const upsert = db.transaction((profile, provider = 'google') => {
+    const existing = findByIdentity(provider, profile.sub);
+    const fields = {
+      email: profile.email ?? null, verified: Number(provider === 'google' || profile.emailVerified === true),
+      name: profile.name ?? null, picture: profile.picture ?? null, now: now(), provider
+    };
+    if (existing) {
+      if (existing.primaryProvider === provider) {
+        db.prepare(`UPDATE users SET email=@email, email_verified=@verified, display_name=@name,
+          picture_url=@picture, updated_at=@now WHERE id=@id`).run({ ...fields, id: existing.id });
+      }
+      return findById(existing.id);
+    }
+    const { lastInsertRowid } = db.prepare(`INSERT INTO users (email,email_verified,primary_provider,display_name,picture_url,created_at,updated_at)
+      VALUES (@email,@verified,@provider,@name,@picture,@now,@now)`).run(fields);
+    linkIdentity(lastInsertRowid, provider, profile);
+    return findById(lastInsertRowid);
+  });
   return {
+    transaction: work => db.transaction(work)(),
     statistics: {
       overview() {
         return db.prepare(`SELECT
@@ -12,20 +48,12 @@ export function createRepositories(db, clock = () => Date.now()) {
       }
     },
     users: {
-      upsert(googleUser) {
-        db.prepare(`INSERT INTO users (google_sub, email, display_name, picture_url, created_at, updated_at)
-          VALUES (@sub, @email, @name, @picture, @now, @now)
-          ON CONFLICT(google_sub) DO UPDATE SET email=excluded.email,
-            display_name=excluded.display_name, picture_url=excluded.picture_url,
-            updated_at=excluded.updated_at`).run({ ...googleUser, now: now() });
-        return db.prepare('SELECT id, google_sub AS googleSub, email, display_name AS name, picture_url AS picture FROM users WHERE google_sub = ?').get(googleUser.sub);
-      },
-      findById(userId) {
-        return db.prepare('SELECT id, google_sub AS googleSub, email, display_name AS name, picture_url AS picture FROM users WHERE id = ?').get(userId);
-      },
-      findByGoogleSub(sub) {
-        return db.prepare('SELECT id, google_sub AS googleSub, email, display_name AS name, picture_url AS picture FROM users WHERE google_sub = ?').get(sub);
-      }
+      upsert,
+      findById,
+      findByIdentity,
+      findByGoogleSub: sub => findByIdentity('google', sub),
+      linkIdentity,
+      listProviders: userId => db.prepare('SELECT provider FROM user_identities WHERE user_id=? ORDER BY provider').all(userId).map(row => row.provider)
     },
     sessions: {
       create(token, userId, expiresAt) {
@@ -33,8 +61,8 @@ export function createRepositories(db, clock = () => Date.now()) {
       },
       find(token) {
         if (!token || typeof token !== 'string') return undefined;
-        return db.prepare(`SELECT u.id, u.google_sub AS googleSub, u.email, u.display_name AS name, u.picture_url AS picture
-          FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?`).get(hashToken(token), now());
+        return db.prepare(`SELECT ${userColumns}
+          FROM sessions s JOIN users u ON u.id=s.user_id ${googleJoin} WHERE s.token_hash=? AND s.expires_at>?`).get(hashToken(token), now());
       },
       remove(token) {
         if (token) db.prepare('DELETE FROM sessions WHERE token_hash=?').run(hashToken(token));
@@ -43,13 +71,13 @@ export function createRepositories(db, clock = () => Date.now()) {
     flows: {
       create(flow) {
         db.prepare(`INSERT INTO oauth_flows
-          (state_hash, browser_hash, flow_type, app_id, return_to, code_verifier, nonce, user_id, expires_at)
-          VALUES (@stateHash, @browserHash, @type, @appId, @returnTo, @codeVerifier, @nonce, @userId, @expiresAt)`).run(flow);
+          (state_hash, browser_hash, flow_type, provider, app_id, return_to, code_verifier, nonce, user_id, expires_at)
+          VALUES (@stateHash, @browserHash, @type, @provider, @appId, @returnTo, @codeVerifier, @nonce, @userId, @expiresAt)`).run(flow);
       },
       consume(state) {
         if (!state || typeof state !== 'string') return undefined;
         return db.prepare(`DELETE FROM oauth_flows WHERE state_hash=? RETURNING
-          browser_hash AS browserHash, flow_type AS type, app_id AS appId, return_to AS returnTo,
+          browser_hash AS browserHash, flow_type AS type, provider, app_id AS appId, return_to AS returnTo,
           code_verifier AS codeVerifier, nonce, user_id AS userId, expires_at AS expiresAt`).get(hashToken(state));
       }
     },

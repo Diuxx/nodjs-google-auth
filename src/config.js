@@ -2,6 +2,16 @@ import path from 'node:path';
 import { parseClientApps, registerDemoApp } from './lib/client-apps.js';
 import { createTokenCipher } from './lib/crypto.js';
 
+function optionalProvider(env, prefix) {
+  const clientId = env[`${prefix}_CLIENT_ID`]?.trim();
+  const clientSecret = env[`${prefix}_CLIENT_SECRET`]?.trim();
+  if (!clientId && !clientSecret) return null;
+  if (!clientId || !clientSecret || clientId.startsWith('REMPLACER') || clientSecret.startsWith('REMPLACER')) {
+    throw new Error(`Configuration OAuth incomplète : ${prefix}_CLIENT_ID et ${prefix}_CLIENT_SECRET.`);
+  }
+  return { clientId, clientSecret };
+}
+
 export function loadConfig(env = process.env) {
   const isProduction = env.NODE_ENV === 'production';
   for (const key of ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'TOKEN_ENCRYPTION_KEY_BASE64', 'CLIENT_APPS_JSON', 'PUBLIC_BASE_URL']) {
@@ -23,7 +33,14 @@ export function loadConfig(env = process.env) {
   const port = Number(env.PORT ?? 3000);
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('PORT invalide.');
   const cipher = createTokenCipher(env.TOKEN_ENCRYPTION_KEY_BASE64);
+  const github = optionalProvider(env, 'GITHUB');
+  const facebook = optionalProvider(env, 'FACEBOOK');
+  if (facebook) {
+    facebook.apiVersion = env.FACEBOOK_API_VERSION || 'v27.0';
+    if (!/^v\d+\.\d+$/.test(facebook.apiVersion)) throw new Error('FACEBOOK_API_VERSION invalide.');
+  }
   return {
+    github, facebook,
     isProduction, port, host: env.HOST || '0.0.0.0',
     publicBaseUrl: publicBaseUrl.origin,
     googleClientId: env.GOOGLE_CLIENT_ID,
