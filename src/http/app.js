@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import { isAllowedUser } from '../auth/auth-service.js';
 import { AppError, requireCondition } from '../lib/errors.js';
 import { requireAppOrigin } from '../lib/client-apps.js';
 import { registerDemoRoutes } from './demo/routes.js';
@@ -43,7 +44,7 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
 
   function currentUser(request) {
     const user = repo.sessions.find(request.cookies[cookies.sessionName]);
-    if (user && config.allowedEmails.size && !config.allowedEmails.has(user.email.toLowerCase())) {
+    if (user && !isAllowedUser(config, user)) {
       return undefined;
     }
     return user;
@@ -51,7 +52,7 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
 
   function requireUser(request) {
     const user = currentUser(request);
-    requireCondition(user, 401, 'UNAUTHENTICATED', 'Connecte-toi avec Google.');
+    requireCondition(user, 401, 'UNAUTHENTICATED', 'Connecte-toi pour continuer.');
     return user;
   }
 
@@ -75,20 +76,20 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
     return user;
   }
 
-  function beginFlow(type, request, reply) {
+  function beginFlow(type, request, reply, provider = 'google') {
     const user = type === 'drive' ? requireUser(request) : null;
-    const { browserToken, redirectUrl } = auth.start(type, request.query.app, request.query.return_to, user);
+    const { browserToken, redirectUrl } = auth.start(type, request.query.app, request.query.return_to, user, provider);
     setFlowCookie(reply, cookies, browserToken);
     return reply.redirect(redirectUrl);
   }
 
-  async function endFlow(type, request, reply) {
+  async function endFlow(type, request, reply, provider = 'google') {
     if (request.query.error) {
-      throw new AppError(400, 'GOOGLE_AUTH_DECLINED', 'Authentification ou autorisation Google refusée.');
+      throw new AppError(400, provider === 'google' ? 'GOOGLE_AUTH_DECLINED' : 'PROVIDER_AUTH_DECLINED', 'Authentification ou autorisation refusée.');
     }
     const oldToken = request.cookies[cookies.sessionName];
     const result = await auth.callback(type, request.query.state, request.query.code,
-      request.cookies[cookies.flowName], currentUser(request));
+      request.cookies[cookies.flowName], currentUser(request), provider);
     clearFlowCookie(reply, cookies);
     if (result.sessionToken) {
       repo.sessions.remove(oldToken);
@@ -106,12 +107,40 @@ export async function createApp({ config, repo, auth, google, sync, drive, datab
     database.prepare('SELECT 1').get();
     return { status: 'ok' };
   });
-  app.get('/auth/google/start', (request, reply) => beginFlow('login', request, reply));
-  app.get('/auth/google/callback', (request, reply) => endFlow('login', request, reply));
+  const enabledProviders = ['google', ...(config.facebook ? ['facebook'] : []), ...(config.github ? ['github'] : [])];
+  function validateProvider(name) {
+    requireCondition(enabledProviders.includes(name), 404, 'UNKNOWN_PROVIDER', 'Fournisseur d’identité non disponible.');
+  }
+  app.get('/auth/:provider/start', (request, reply) => {
+    validateProvider(request.params.provider);
+    return beginFlow('login', request, reply, request.params.provider);
+  });
+  app.get('/auth/:provider/callback', (request, reply) => {
+    validateProvider(request.params.provider);
+    return endFlow('login', request, reply, request.params.provider);
+  });
+  app.get('/api/auth/providers', async (_request, reply) =>
+    reply.header('Cache-Control', 'no-store').send({ providers: enabledProviders }));
+  app.get('/api/auth/identities', async (request, reply) => {
+    const user = requireUser(request);
+    return reply.header('Cache-Control', 'no-store').send({ providers: repo.users.listProviders(user.id) });
+  });
+  app.post('/auth/:provider/link', async (request, reply) => {
+    validateProvider(request.params.provider);
+    const user = requireUser(request);
+    // Linking login methods is an account-management operation on the identity service itself.
+    requireCondition(request.headers.origin === config.publicBaseUrl,
+      403, 'ORIGIN_FORBIDDEN', 'Origine non autorisée.');
+    const { browserToken, redirectUrl } = auth.start('link', 'demo',
+      new URL('/demo', config.publicBaseUrl).href, user, request.params.provider);
+    setFlowCookie(reply, cookies, browserToken);
+    return reply.header('Cache-Control', 'no-store').send({ redirectUrl });
+  });
   app.get('/auth/drive/start', (request, reply) => beginFlow('drive', request, reply));
   app.get('/auth/drive/callback', (request, reply) => endFlow('drive', request, reply));
 
-  app.get('/api/session', async request => {
+  app.get('/api/session', async (request, reply) => {
+    reply.header('Cache-Control', 'no-store');
     const user = currentUser(request);
     return { authenticated: Boolean(user), user: user ? {
       id: user.id, email: user.email, name: user.name, picture: user.picture

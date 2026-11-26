@@ -79,3 +79,5 @@ button:disabled { cursor: wait; opacity: .6; }
   .card { padding: 24px 19px; margin: 70px auto; }
   .card-footer { line-height: 1.5; }
 }
+
+.provider-button { margin-top: 0.75rem; width: 100%; }

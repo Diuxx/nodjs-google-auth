@@ -1,18 +1,19 @@
 # Nicolabz Identity
 
-Nicolabz Identity is a central Google sign-in and Drive synchronization
+Nicolabz Identity is a central multi-provider sign-in and Google Drive synchronization
 service for authorized web applications.
 
 ## Features
 
-- Google sign-in and server-side browser sessions.
+- Google, Facebook and GitHub sign-in with server-side browser sessions.
+- Secure linking of multiple sign-in methods to one local account.
 - Optional Drive authorization per application.
 - Versioned single- and multi-file JSON synchronization in each user's Drive.
 - A service dashboard and an interactive demo.
 
 ## Quick Start
 
-Install Node.js 22.13 or later, configure a Google OAuth client, and copy
+Install Node.js 22.13 or later, configure a Google OAuth client (Facebook and GitHub are optional), and copy
 `.env.example` to `.env`. Set the required credentials and encryption key as
 described in the [usage guide](docs/USAGE.md).
 

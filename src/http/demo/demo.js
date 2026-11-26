@@ -1,3 +1,5 @@
+const providerLabels = { google: 'Google', facebook: 'Facebook', github: 'GitHub' };
+
 const elements = {
   loading: document.querySelector('#loading'),
   loggedOut: document.querySelector('#logged-out'),
@@ -41,25 +43,58 @@ async function refreshSession() {
   showView('loading');
   showError(null);
   try {
-    const session = await requestJson('/api/session');
+    const [session, { providers }] = await Promise.all([
+      requestJson('/api/session'), requestJson('/api/auth/providers')
+    ]);
+    for (const provider of ['facebook', 'github']) {
+      document.querySelector(`#login-${provider}`).hidden = !providers.includes(provider);
+    }
     if (!session.authenticated) {
       showView('logged-out');
       return;
     }
 
-    const name = session.user.name?.trim() || 'Compte Google';
+    const name = session.user.name?.trim() || 'Compte';
     elements.name.textContent = name;
-    elements.email.textContent = session.user.email;
+    elements.email.textContent = session.user.email ?? 'Adresse e-mail non disponible';
     elements.avatar.textContent = name.charAt(0).toLocaleUpperCase('fr');
     elements.driveStatus.textContent = session.driveConnected ? 'Drive connecté' : 'Drive non connecté';
     elements.connectDrive.textContent = session.driveConnected
       ? 'Autoriser / renouveler les permissions Drive'
       : 'Autoriser Google Drive';
     elements.form.hidden = !session.driveConnected;
+    await renderIdentities(providers);
     showView('logged-in');
   } catch (error) {
     showView('logged-out');
     showError(`Impossible de vérifier la session : ${error.message}`);
+  }
+}
+
+async function renderIdentities(enabled) {
+  const { providers: linked } = await requestJson('/api/auth/identities');
+  document.querySelector('#linked-identities').textContent = linked.map(provider => providerLabels[provider]).join(' · ');
+  const container = document.querySelector('#link-providers');
+  container.replaceChildren();
+  for (const provider of enabled.filter(name => !linked.includes(name))) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary-button provider-button';
+    button.textContent = `Associer ${providerLabels[provider]}`;
+    button.addEventListener('click', () => linkIdentity(provider, button));
+    container.append(button);
+  }
+}
+
+async function linkIdentity(provider, button) {
+  button.disabled = true;
+  showError(null);
+  try {
+    const { redirectUrl } = await requestJson(`/auth/${provider}/link`, { method: 'POST' });
+    location.assign(redirectUrl);
+  } catch (error) {
+    showError(`Association impossible : ${error.message}`);
+    button.disabled = false;
   }
 }
 
@@ -108,6 +143,9 @@ async function saveTextFile(event) {
 }
 
 elements.login.addEventListener('click', startGoogleLogin);
+for (const provider of ['facebook', 'github']) {
+  document.querySelector(`#login-${provider}`).addEventListener('click', () => location.assign(`/demo/login/${provider}`));
+}
 elements.logout.addEventListener('click', logout);
 elements.connectDrive.addEventListener('click', authorizeDrive);
 elements.form.addEventListener('submit', saveTextFile);
@@ -115,9 +153,10 @@ elements.form.addEventListener('submit', saveTextFile);
 // Le callback OAuth revient sur /demo?auth=connected. Le paramètre ne prouve
 // pas la connexion : seul /api/session fournit l'état de référence.
 const url = new URL(location.href);
-if (url.searchParams.has('auth') || url.searchParams.has('drive')) {
+if (url.searchParams.has('auth') || url.searchParams.has('drive') || url.searchParams.has('identity')) {
   url.searchParams.delete('auth');
   url.searchParams.delete('drive');
+  url.searchParams.delete('identity');
   history.replaceState(null, '', url.pathname + url.search + url.hash);
 }
 refreshSession();

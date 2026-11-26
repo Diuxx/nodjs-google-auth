@@ -201,7 +201,7 @@ prompt_allowed_emails() {
   REPLY="${input:-$current}"
   [[ "$REPLY" != *$'\n'* && "$REPLY" != *$'\r'* ]] || fail 'Invalid email list.'
   if [[ -z "$REPLY" ]]; then
-    warn 'With ALLOWED_EMAILS empty, any account authorized by the Google consent screen may sign in.'
+    warn 'With ALLOWED_EMAILS empty, any account admitted by an enabled identity provider may sign in.'
     read -r -p 'Continue without an email allowlist? [y/N]: ' answer || fail 'Input cancelled.'
     [[ "$answer" =~ ^[Yy]$ ]] || fail 'Configuration cancelled. No changes were saved.'
   fi
@@ -286,7 +286,7 @@ validate_environment() {
     [[ -n "$value" && "$value" != *REMPLACER* ]] || fail "Configure $key in $ENV_FILE."
   done
   if [[ -z "$(read_env_value ALLOWED_EMAILS)" ]]; then
-    warn 'ALLOWED_EMAILS is empty: any Google user allowed by the OAuth consent screen can sign in.'
+    warn 'ALLOWED_EMAILS is empty: any account admitted by an enabled identity provider can sign in.'
   fi
 }
 

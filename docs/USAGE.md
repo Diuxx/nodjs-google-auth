@@ -168,6 +168,67 @@ account. Google publication and verification requirements depend on the
 requested scopes and project audience; follow the requirements shown for the
 Cloud project.
 
+## Optional Social Sign-in
+
+Google remains required for backward compatibility and Drive. Facebook and
+GitHub are independently enabled when both their client ID and secret are
+configured. Leave both variables empty to disable a provider. Configure
+credentials in the server environment, never in a client application.
+
+For GitHub, create an OAuth App in GitHub developer settings and register
+`https://auth.example.org/auth/github/callback`. Set:
+
+```dotenv
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+```
+
+GitHub requests only `read:user` and `user:email`, uses PKCE S256, and
+looks up verified email addresses separately from the profile.
+
+For Facebook, create a Meta app with Facebook Login, configure its website
+and valid OAuth redirect URI `https://auth.example.org/auth/facebook/callback`,
+and set:
+
+```dotenv
+FACEBOOK_CLIENT_ID=
+FACEBOOK_CLIENT_SECRET=
+FACEBOOK_API_VERSION=v27.0
+```
+
+Use a supported Graph API version; the version is configurable. Facebook
+requests `public_profile,email` and verifies the access token's app and user
+before retrieving the profile. Check the Meta dashboard for production access,
+privacy policy and data deletion requirements. Register separate development
+applications/callbacks where required by each provider.
+
+For Podman deployments, add these variables manually to
+`~/.config/nicolabz-identity/identity.env`, then restart with
+`./ops/redeploy-service.sh --skip-build`. Only configured providers appear
+in the demo; `GET /api/auth/providers` lists enabled IDs.
+
+### Identity linking and access policy
+
+A local user can link one identity per provider from the signed-in demo.
+To preserve an existing account and its Drive data, **sign in using the
+original method first, then link the new provider**. Signing in with an
+unlinked identity creates a separate account, even if the emails match.
+There is no automatic account merge or provider unlink feature.
+
+`ALLOWED_EMAILS` being empty allows identities admitted by configured
+providers. A non-empty list requires a verified email for new accounts.
+Facebook's profile email is not treated as verified; with an allowlist,
+Facebook can be used as a linked login method of an already admitted
+account. Secondary providers cannot overwrite the primary profile or
+bypass its allowlist. Primary GitHub and Google sign-ins recheck the
+verified email. Without an allowlist, the email may be absent.
+
+SQLite schema version 2 migrates existing Google identities into
+`user_identities` and retains local IDs, sessions, encrypted Drive
+credentials and sync file references. Back up SQLite before upgrading,
+preserving the encryption key. The older server cannot open schema v2;
+roll back using the pre-upgrade database backup if necessary.
+
 ## Per-Application Drive Policy
 
 `CLIENT_APPS_JSON` is the server-side allowlist of application IDs and browser
@@ -196,13 +257,19 @@ Drive authorization remains separately available through
 `/auth/drive/start?app=<id>&return_to=<url>` for applications that do not
 require Drive at login and for reauthorization. That flow requires an
 authenticated session and verifies that the Google account's stable `sub`
-matches the signed-in account. It requests offline access and explicit consent.
+matches the Google identity already associated with the local account. If a
+social-only account has no Google identity, the Drive consent also links
+that Google identity, provided it is not owned by another local account. It
+requests offline access and explicit consent.
 If a required-Drive login cannot obtain a refresh token, sign in through an
 identity-only application first, then use the separate Drive authorization
 flow to reauthorize.
 
-Google consent refusal does not establish a new session or store Drive
-credentials. An existing session remains intact. `POST /api/drive/disconnect`
+A refused Google login does not establish a new session or store Drive
+credentials. If a Facebook/GitHub sign-in is followed by required Drive
+consent, the local login session already exists; rejecting Drive leaves
+synchronization unavailable. A required-Drive social login automatically
+redirects to Google consent unless a stored Drive credential already exists. An existing session remains intact. `POST /api/drive/disconnect`
 attempts to revoke Google's token and removes the local encrypted credential
 even if Google has already revoked it. It does not delete sync indexes or
 Drive documents. An externally revoked or expired token can be reauthorized
@@ -218,10 +285,12 @@ Keep the same OAuth client, callback URLs, SQLite database, and encryption key.
 
 ## Application Integration
 
-Applications start Google login using the existing routes:
+Applications start login using the same routes for Google, Facebook or
+GitHub. Existing Google URLs remain valid:
 
 ```js
-const url = new URL('https://auth.example.org/auth/google/start');
+const provider = 'google'; // Or 'facebook' / 'github' when configured
+const url = new URL(`https://auth.example.org/auth/${provider}/start`);
 url.searchParams.set('app', 'pecule');
 url.searchParams.set('return_to', location.href);
 location.assign(url.href);
@@ -290,21 +359,27 @@ on demand, including named files when multi-file mode is disabled. See
 
 | Method | Route | Access | Success |
 | --- | --- | --- | --- |
-| GET | `/auth/google/start?app=<id>&return_to=<url>` | Public | `302` to Google for identity, with Drive scope if configured |
-| GET | `/auth/google/callback` | Google OAuth flow | `302` to the approved return URL with `auth=connected` |
+| GET | `/auth/:provider/start?app=<id>&return_to=<url>` | Public | `302` to enabled provider |
+| GET | `/auth/:provider/callback` | Provider OAuth flow | Completes login/link; redirects to approved return or required Drive consent |
+| GET | `/api/auth/providers` | Public | Enabled provider IDs |
+| GET | `/api/auth/identities` | Session | Linked provider IDs |
+| POST | `/auth/:provider/link` | Session, service origin | JSON `{redirectUrl}`; navigate to it to link an identity |
 | GET | `/auth/drive/start?app=<id>&return_to=<url>` | Session | `302` to Google for Drive authorization |
 | GET | `/auth/drive/callback` | Google OAuth flow, same session | `302` to the approved return URL with `drive=connected` |
 | GET | `/demo` | Public | HTML demo; `/demo/` redirects to it |
 | GET | `/demo/login` | Public | `302` to the demo's Google login start |
+| GET | `/demo/login/facebook`, `/demo/login/github` | Public | `302` to the corresponding login start |
 | GET | `/demo/drive` | Public redirect; destination requires a session | `302` to the demo's Drive authorization start |
 | POST | `/api/demo/text-file` | Session, service origin, Drive | `201` with the created visible Drive text file |
 
 The OAuth start routes require a registered `app` and an absolute `return_to`
 URL with an origin registered for that app. Encode query values when building
-the URL. Callbacks are invoked by Google and require the active browser-bound
+the URL. Callbacks are invoked by the selected provider and require the active browser-bound
 flow; they are not general-purpose login endpoints. Google consent refusal
 returns `400 GOOGLE_AUTH_DECLINED`. The separate Drive flow also verifies
-that the Google account matches the signed-in account.
+that the Google account matches the linked Google identity, or links an
+unclaimed Google identity for a social-only user. Link callbacks return to
+`/demo?identity=linked`; they never replace the current session.
 
 The demo text request is `{"filename":"example.txt","content":"Hello"}`.
 The filename must be a simple `.txt` name of at most 100 characters, without

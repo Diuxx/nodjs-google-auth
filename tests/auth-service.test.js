@@ -21,6 +21,7 @@ function fakeAuth({
     cipher: createTokenCipher(Buffer.alloc(32, 2).toString('base64'))
   };
   const repo = {
+    transaction: work => work(),
     flows: {
       create(flow) { flows.set(flow.stateHash, flow); },
       consume(state) {
@@ -31,7 +32,7 @@ function fakeAuth({
       }
     },
     users: {
-      findByGoogleSub: () => existingRefreshToken ? { id: 1 } : null,
+      findByIdentity: () => existingRefreshToken ? { id: 1, primaryProvider: 'google' } : null,
       upsert: user => ({ id: 1, googleSub: user.sub, ...user })
     },
     sessions: { create(token) { nextSession = token; } },

@@ -16,12 +16,16 @@ const assets = [
  * Le cookie OAuth est ainsi créé sur le même hôte que le callback Google.
  */
 export function registerDemoRoutes(app, publicBaseUrl) {
-  app.get('/demo/login', (_request, reply) => {
-    const url = new URL('/auth/google/start', publicBaseUrl);
+  function login(provider, reply) {
+    const url = new URL(`/auth/${provider}/start`, publicBaseUrl);
     url.searchParams.set('app', 'demo');
     url.searchParams.set('return_to', new URL('/demo', publicBaseUrl).href);
     return reply.redirect(url.href);
-  });
+  }
+  app.get('/demo/login', (_request, reply) => login('google', reply));
+  for (const provider of ['facebook', 'github']) {
+    app.get(`/demo/login/${provider}`, (_request, reply) => login(provider, reply));
+  }
 
   app.get('/demo/drive', (_request, reply) => {
     const url = new URL('/auth/drive/start', publicBaseUrl);

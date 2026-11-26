@@ -7,8 +7,7 @@ test('La déconnexion Drive conserve les index et documents de synchronisation',
   const db = openDatabase(':memory:');
   t.after(() => db.close());
   const repo = createRepositories(db);
-  db.prepare(`INSERT INTO users (google_sub, email, created_at, updated_at)
-    VALUES ('google-sub', 'user@example.org', 1, 1)`).run();
+  repo.users.upsert({ sub: 'google-sub', email: 'user@example.org' });
   repo.drive.saveEncryptedToken(1, 'encrypted-refresh');
   repo.sync.saveFileId(1, 'pecule', 'drive-file-id');
 
